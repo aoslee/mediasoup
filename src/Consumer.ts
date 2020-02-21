@@ -1,6 +1,6 @@
-import Logger from './Logger';
-import EnhancedEventEmitter from './EnhancedEventEmitter';
-import Channel from './Channel';
+import { Logger } from './Logger';
+import { EnhancedEventEmitter } from './EnhancedEventEmitter';
+import { Channel } from './Channel';
 import { ProducerStat } from './Producer';
 import {
 	MediaKind,
@@ -49,19 +49,19 @@ export interface ConsumerOptions
 }
 
 /**
- * Valid types for 'packet' event.
+ * Valid types for 'trace' event.
  */
-export type ConsumerPacketEventType = 'rtp' | 'nack' | 'pli' | 'fir';
+export type ConsumerTraceEventType = 'rtp' | 'keyframe' | 'nack' | 'pli' | 'fir';
 
 /**
- * 'packet' event data.
+ * 'trace' event data.
  */
-export interface ConsumerPacketEventData
+export interface ConsumerTraceEventData
 {
 	/**
-	 * Type of packet.
+	 * Trace type.
 	 */
-	type: ConsumerPacketEventType;
+	type: ConsumerTraceEventType;
 
 	/**
 	 * Event timestamp.
@@ -112,7 +112,6 @@ export interface ConsumerStat
 	timestamp: number;
 	ssrc: number;
 	rtxSsrc?: number;
-	rid?: string;
 	kind: string;
 	mimeType: string;
 	packetsLost: number;
@@ -138,7 +137,7 @@ export type ConsumerType = 'simple' | 'simulcast' | 'svc' | 'pipe';
 
 const logger = new Logger('Consumer');
 
-export default class Consumer extends EnhancedEventEmitter
+export class Consumer extends EnhancedEventEmitter
 {
 	// Internal data.
 	// - .routerId
@@ -168,8 +167,14 @@ export default class Consumer extends EnhancedEventEmitter
 	// Associated Producer paused flag.
 	private _producerPaused = false;
 
+	// Current priority.
+	private _priority = 1;
+
 	// Current score.
 	private _score: ConsumerScore;
+
+	// Preferred layers.
+	private _preferredLayers: ConsumerLayers | null = null;
 
 	// Curent layers.
 	private _currentLayers: ConsumerLayers | null = null;
@@ -183,9 +188,9 @@ export default class Consumer extends EnhancedEventEmitter
 	 * @emits producerclose
 	 * @emits producerpause
 	 * @emits producerresume
-	 * @emits {ConsumerScore} score
-	 * @emits {ConsumerLayers | null} layerschange
-	 * @emits {ConsumerPacketEventData} packet
+	 * @emits score - (score: ConsumerScore)
+	 * @emits layerschange - (layers: ConsumerLayers | null)
+	 * @emits trace - (trace: ConsumerTraceEventData)
 	 * @emits @close
 	 * @emits @producerclose
 	 */
@@ -197,7 +202,8 @@ export default class Consumer extends EnhancedEventEmitter
 			appData,
 			paused,
 			producerPaused,
-			score = { score: 10, producerScore: 10 }
+			score = { score: 10, producerScore: 10 },
+			preferredLayers
 		}:
 		{
 			internal: any;
@@ -207,9 +213,10 @@ export default class Consumer extends EnhancedEventEmitter
 			paused: boolean;
 			producerPaused: boolean;
 			score?: ConsumerScore;
+			preferredLayers?: ConsumerLayers;
 		})
 	{
-		super(logger);
+		super();
 
 		logger.debug('constructor()');
 
@@ -220,6 +227,7 @@ export default class Consumer extends EnhancedEventEmitter
 		this._paused = paused;
 		this._producerPaused = producerPaused;
 		this._score = score;
+		this._preferredLayers = preferredLayers;
 
 		this._handleWorkerNotifications();
 	}
@@ -281,11 +289,19 @@ export default class Consumer extends EnhancedEventEmitter
 	}
 
 	/**
-	 * Whether the associate Producer  is paused.
+	 * Whether the associate Producer is paused.
 	 */
 	get producerPaused(): boolean
 	{
 		return this._producerPaused;
+	}
+
+	/**
+	 * Current priority.
+	 */
+	get priority(): number
+	{
+		return this._priority;
 	}
 
 	/**
@@ -294,6 +310,14 @@ export default class Consumer extends EnhancedEventEmitter
 	get score(): ConsumerScore
 	{
 		return this._score;
+	}
+
+	/**
+	 * Preferred video layers.
+	 */
+	get preferredLayers(): ConsumerLayers | null
+	{
+		return this._preferredLayers;
 	}
 
 	/**
@@ -326,9 +350,9 @@ export default class Consumer extends EnhancedEventEmitter
 	 * @emits close
 	 * @emits pause
 	 * @emits resume
-	 * @emits {ConsumerScore} score
-	 * @emits {ConsumerLayers | null} layerschange
-	 * @emits {ConsumerPacketEventData} packet
+	 * @emits score - (score: ConsumerScore)
+	 * @emits layerschange - (layers: ConsumerLayers | null)
+	 * @emits trace - (trace: ConsumerTraceEventData)
 	 */
 	get observer(): EnhancedEventEmitter
 	{
@@ -452,8 +476,40 @@ export default class Consumer extends EnhancedEventEmitter
 
 		const reqData = { spatialLayer, temporalLayer };
 
-		await this._channel.request(
+		const data = await this._channel.request(
 			'consumer.setPreferredLayers', this._internal, reqData);
+
+		this._preferredLayers = data || null;
+	}
+
+	/**
+	 * Set priority.
+	 */
+	async setPriority(priority: number): Promise<void>
+	{
+		logger.debug('setPriority()');
+
+		const reqData = { priority };
+
+		const data = await this._channel.request(
+			'consumer.setPriority', this._internal, reqData);
+
+		this._priority = data.priority;
+	}
+
+	/**
+	 * Unset priority.
+	 */
+	async unsetPriority(): Promise<void>
+	{
+		logger.debug('unsetPriority()');
+
+		const reqData = { priority: 1 };
+
+		const data = await this._channel.request(
+			'consumer.setPriority', this._internal, reqData);
+
+		this._priority = data.priority;
 	}
 
 	/**
@@ -467,16 +523,16 @@ export default class Consumer extends EnhancedEventEmitter
 	}
 
 	/**
-	 * Enable 'packet' event.
+	 * Enable 'trace' event.
 	 */
-	async enablePacketEvent(types: ConsumerPacketEventType[] = []): Promise<void>
+	async enableTraceEvent(types: ConsumerTraceEventType[] = []): Promise<void>
 	{
-		logger.debug('enablePacketEvent()');
+		logger.debug('enableTraceEvent()');
 
 		const reqData = { types };
 
 		await this._channel.request(
-			'consumer.enablePacketEvent', this._internal, reqData);
+			'consumer.enableTraceEvent', this._internal, reqData);
 	}
 
 	private _handleWorkerNotifications(): void
@@ -568,14 +624,14 @@ export default class Consumer extends EnhancedEventEmitter
 					break;
 				}
 
-				case 'packet':
+				case 'trace':
 				{
-					const packet = data as ConsumerPacketEventData;
+					const trace = data as ConsumerTraceEventData;
 
-					this.safeEmit('packet', packet);
+					this.safeEmit('trace', trace);
 
 					// Emit observer event.
-					this._observer.safeEmit('packet', packet);
+					this._observer.safeEmit('trace', trace);
 
 					break;
 				}

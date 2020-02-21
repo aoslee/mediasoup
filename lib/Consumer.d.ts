@@ -1,5 +1,5 @@
-import EnhancedEventEmitter from './EnhancedEventEmitter';
-import Channel from './Channel';
+import { EnhancedEventEmitter } from './EnhancedEventEmitter';
+import { Channel } from './Channel';
 import { ProducerStat } from './Producer';
 import { MediaKind, RtpCapabilities, RtpParameters } from './RtpParameters';
 export interface ConsumerOptions {
@@ -37,17 +37,17 @@ export interface ConsumerOptions {
     appData?: any;
 }
 /**
- * Valid types for 'packet' event.
+ * Valid types for 'trace' event.
  */
-export declare type ConsumerPacketEventType = 'rtp' | 'nack' | 'pli' | 'fir';
+export declare type ConsumerTraceEventType = 'rtp' | 'keyframe' | 'nack' | 'pli' | 'fir';
 /**
- * 'packet' event data.
+ * 'trace' event data.
  */
-export interface ConsumerPacketEventData {
+export interface ConsumerTraceEventData {
     /**
-     * Type of packet.
+     * Trace type.
      */
-    type: ConsumerPacketEventType;
+    type: ConsumerTraceEventType;
     /**
      * Event timestamp.
      */
@@ -86,7 +86,6 @@ export interface ConsumerStat {
     timestamp: number;
     ssrc: number;
     rtxSsrc?: number;
-    rid?: string;
     kind: string;
     mimeType: string;
     packetsLost: number;
@@ -108,7 +107,7 @@ export interface ConsumerStat {
  * Consumer type.
  */
 export declare type ConsumerType = 'simple' | 'simulcast' | 'svc' | 'pipe';
-export default class Consumer extends EnhancedEventEmitter {
+export declare class Consumer extends EnhancedEventEmitter {
     private readonly _internal;
     private readonly _data;
     private readonly _channel;
@@ -116,7 +115,9 @@ export default class Consumer extends EnhancedEventEmitter {
     private readonly _appData?;
     private _paused;
     private _producerPaused;
+    private _priority;
     private _score;
+    private _preferredLayers;
     private _currentLayers;
     private readonly _observer;
     /**
@@ -125,13 +126,13 @@ export default class Consumer extends EnhancedEventEmitter {
      * @emits producerclose
      * @emits producerpause
      * @emits producerresume
-     * @emits {ConsumerScore} score
-     * @emits {ConsumerLayers | null} layerschange
-     * @emits {ConsumerPacketEventData} packet
+     * @emits score - (score: ConsumerScore)
+     * @emits layerschange - (layers: ConsumerLayers | null)
+     * @emits trace - (trace: ConsumerTraceEventData)
      * @emits @close
      * @emits @producerclose
      */
-    constructor({ internal, data, channel, appData, paused, producerPaused, score }: {
+    constructor({ internal, data, channel, appData, paused, producerPaused, score, preferredLayers }: {
         internal: any;
         data: any;
         channel: Channel;
@@ -139,6 +140,7 @@ export default class Consumer extends EnhancedEventEmitter {
         paused: boolean;
         producerPaused: boolean;
         score?: ConsumerScore;
+        preferredLayers?: ConsumerLayers;
     });
     /**
      * Consumer id.
@@ -169,13 +171,21 @@ export default class Consumer extends EnhancedEventEmitter {
      */
     get paused(): boolean;
     /**
-     * Whether the associate Producer  is paused.
+     * Whether the associate Producer is paused.
      */
     get producerPaused(): boolean;
+    /**
+     * Current priority.
+     */
+    get priority(): number;
     /**
      * Consumer score.
      */
     get score(): ConsumerScore;
+    /**
+     * Preferred video layers.
+     */
+    get preferredLayers(): ConsumerLayers | null;
     /**
      * Current video layers.
      */
@@ -194,9 +204,9 @@ export default class Consumer extends EnhancedEventEmitter {
      * @emits close
      * @emits pause
      * @emits resume
-     * @emits {ConsumerScore} score
-     * @emits {ConsumerLayers | null} layerschange
-     * @emits {ConsumerPacketEventData} packet
+     * @emits score - (score: ConsumerScore)
+     * @emits layerschange - (layers: ConsumerLayers | null)
+     * @emits trace - (trace: ConsumerTraceEventData)
      */
     get observer(): EnhancedEventEmitter;
     /**
@@ -230,13 +240,21 @@ export default class Consumer extends EnhancedEventEmitter {
      */
     setPreferredLayers({ spatialLayer, temporalLayer }: ConsumerLayers): Promise<void>;
     /**
+     * Set priority.
+     */
+    setPriority(priority: number): Promise<void>;
+    /**
+     * Unset priority.
+     */
+    unsetPriority(): Promise<void>;
+    /**
      * Request a key frame to the Producer.
      */
     requestKeyFrame(): Promise<void>;
     /**
-     * Enable 'packet' event.
+     * Enable 'trace' event.
      */
-    enablePacketEvent(types?: ConsumerPacketEventType[]): Promise<void>;
+    enableTraceEvent(types?: ConsumerTraceEventType[]): Promise<void>;
     private _handleWorkerNotifications;
 }
 //# sourceMappingURL=Consumer.d.ts.map

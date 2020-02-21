@@ -37,10 +37,18 @@ namespace RTC
 			virtual void OnConsumerProducerClosed(RTC::Consumer* consumer)                         = 0;
 		};
 
+	public:
+		struct Layers
+		{
+			int16_t spatial{ -1 };
+			int16_t temporal{ -1 };
+		};
+
 	private:
-		struct PacketEventTypes
+		struct TraceEventTypes
 		{
 			bool rtp{ false };
+			bool keyframe{ false };
 			bool nack{ false };
 			bool pli{ false };
 			bool fir{ false };
@@ -63,6 +71,7 @@ namespace RTC
 		const RTC::RtpParameters& GetRtpParameters() const;
 		const struct RTC::RtpHeaderExtensionIds& GetRtpHeaderExtensionIds() const;
 		RTC::RtpParameters::Type GetType() const;
+		virtual Layers GetPreferredLayers() const;
 		const std::vector<uint32_t>& GetMediaSsrcs() const;
 		const std::vector<uint32_t>& GetRtxSsrcs() const;
 		virtual bool IsActive() const;
@@ -79,13 +88,12 @@ namespace RTC
 		virtual void ProducerRtcpSenderReport(RTC::RtpStream* rtpStream, bool first) = 0;
 		void ProducerClosed();
 		void SetExternallyManagedBitrate();
-		virtual uint16_t GetBitratePriority() const                               = 0;
-		virtual uint32_t UseAvailableBitrate(uint32_t bitrate, bool considerLoss) = 0;
-		virtual uint32_t IncreaseLayer(uint32_t bitrate, bool considerLoss)       = 0;
-		virtual void ApplyLayers()                                                = 0;
-		virtual uint32_t GetDesiredBitrate() const                                = 0;
-		virtual void SendRtpPacket(RTC::RtpPacket* packet)                        = 0;
-		virtual std::vector<RTC::RtpStreamSend*> GetRtpStreams()                  = 0;
+		virtual uint8_t GetBitratePriority() const                          = 0;
+		virtual uint32_t IncreaseLayer(uint32_t bitrate, bool considerLoss) = 0;
+		virtual void ApplyLayers()                                          = 0;
+		virtual uint32_t GetDesiredBitrate() const                          = 0;
+		virtual void SendRtpPacket(RTC::RtpPacket* packet)                  = 0;
+		virtual std::vector<RTC::RtpStreamSend*> GetRtpStreams()            = 0;
 		virtual void GetRtcp(
 		  RTC::RTCP::CompoundPacket* packet, RTC::RtpStreamSend* rtpStream, uint64_t nowMs) = 0;
 		virtual void NeedWorstRemoteFractionLost(uint32_t mappedSsrc, uint8_t& worstRemoteFractionLost) = 0;
@@ -97,10 +105,11 @@ namespace RTC
 		virtual float GetRtt() const                                              = 0;
 
 	protected:
-		void EmitPacketEventRtpType(RTC::RtpPacket* packet, bool isRtx = false) const;
-		void EmitPacketEventPliType(uint32_t ssrc) const;
-		void EmitPacketEventFirType(uint32_t ssrc) const;
-		void EmitPacketEventNackType() const;
+		void EmitTraceEventRtpAndKeyFrameTypes(RTC::RtpPacket* packet, bool isRtx = false) const;
+		void EmitTraceEventKeyFrameType(RTC::RtpPacket* packet, bool isRtx = false) const;
+		void EmitTraceEventPliType(uint32_t ssrc) const;
+		void EmitTraceEventFirType(uint32_t ssrc) const;
+		void EmitTraceEventNackType() const;
 
 	private:
 		virtual void UserOnTransportConnected()    = 0;
@@ -125,7 +134,8 @@ namespace RTC
 		uint64_t lastRtcpSentTime{ 0u };
 		uint16_t maxRtcpInterval{ 0u };
 		bool externallyManagedBitrate{ false };
-		struct PacketEventTypes packetEventTypes;
+		uint8_t priority{ 1u };
+		struct TraceEventTypes traceEventTypes;
 
 	private:
 		// Others.
@@ -157,6 +167,14 @@ namespace RTC
 	inline RTC::RtpParameters::Type Consumer::GetType() const
 	{
 		return this->type;
+	}
+
+	inline Consumer::Layers Consumer::GetPreferredLayers() const
+	{
+		// By default return 1:1.
+		Consumer::Layers layers;
+
+		return layers;
 	}
 
 	inline const std::vector<uint32_t>& Consumer::GetMediaSsrcs() const

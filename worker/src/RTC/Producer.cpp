@@ -74,14 +74,24 @@ namespace RTC
 
 			auto jsonPayloadTypeIt = codec.find("payloadType");
 
-			if (jsonPayloadTypeIt == codec.end() || !jsonPayloadTypeIt->is_number_unsigned())
+			// clang-format off
+			if (
+				jsonPayloadTypeIt == codec.end() ||
+				!Utils::Json::IsPositiveInteger(*jsonPayloadTypeIt)
+			)
+			// clang-format on
 			{
 				MS_THROW_TYPE_ERROR("wrong entry in rtpMapping.codecs (missing payloadType)");
 			}
 
 			auto jsonMappedPayloadTypeIt = codec.find("mappedPayloadType");
 
-			if (jsonMappedPayloadTypeIt == codec.end() || !jsonMappedPayloadTypeIt->is_number_unsigned())
+			// clang-format off
+			if (
+				jsonMappedPayloadTypeIt == codec.end() ||
+				!Utils::Json::IsPositiveInteger(*jsonMappedPayloadTypeIt)
+			)
+			// clang-format on
 			{
 				MS_THROW_TYPE_ERROR("wrong entry in rtpMapping.codecs (missing mappedPayloadType)");
 			}
@@ -111,8 +121,15 @@ namespace RTC
 			// ssrc is optional.
 			auto jsonSsrcIt = encoding.find("ssrc");
 
-			if (jsonSsrcIt != encoding.end() && jsonSsrcIt->is_number_unsigned())
+			// clang-format off
+			if (
+				jsonSsrcIt != encoding.end() &&
+				Utils::Json::IsPositiveInteger(*jsonSsrcIt)
+			)
+			// clang-format on
+			{
 				encodingMapping.ssrc = jsonSsrcIt->get<uint32_t>();
+			}
 
 			// rid is optional.
 			auto jsonRidIt = encoding.find("rid");
@@ -121,7 +138,13 @@ namespace RTC
 				encodingMapping.rid = jsonRidIt->get<std::string>();
 
 			// However ssrc or rid must be present (if more than 1 encoding).
-			if (jsonEncodingsIt->size() > 1 && jsonSsrcIt == encoding.end() && jsonRidIt == encoding.end())
+			// clang-format off
+			if (
+				jsonEncodingsIt->size() > 1 &&
+				jsonSsrcIt == encoding.end() &&
+				jsonRidIt == encoding.end()
+			)
+			// clang-format on
 			{
 				MS_THROW_TYPE_ERROR("wrong entry in rtpMapping.encodings (missing ssrc or rid)");
 			}
@@ -143,8 +166,15 @@ namespace RTC
 			// mappedSsrc is mandatory.
 			auto jsonMappedSsrcIt = encoding.find("mappedSsrc");
 
-			if (jsonMappedSsrcIt == encoding.end() || !jsonMappedSsrcIt->is_number_unsigned())
+			// clang-format off
+			if (
+				jsonMappedSsrcIt == encoding.end() ||
+				!Utils::Json::IsPositiveInteger(*jsonMappedSsrcIt)
+			)
+			// clang-format on
+			{
 				MS_THROW_TYPE_ERROR("wrong entry in rtpMapping.encodings (missing mappedSsrc)");
+			}
 
 			encodingMapping.mappedSsrc = jsonMappedSsrcIt->get<uint32_t>();
 		}
@@ -228,7 +258,22 @@ namespace RTC
 
 		// Create a KeyFrameRequestManager.
 		if (this->kind == RTC::Media::Kind::VIDEO)
-			this->keyFrameRequestManager = new RTC::KeyFrameRequestManager(this);
+		{
+			auto jsonKeyFrameRequestDelayIt = data.find("keyFrameRequestDelay");
+			uint32_t keyFrameRequestDelay   = 0u;
+
+			// clang-format off
+			if (
+				jsonKeyFrameRequestDelayIt != data.end() &&
+				jsonKeyFrameRequestDelayIt->is_number_integer()
+			)
+			// clang-format on
+			{
+				keyFrameRequestDelay = jsonKeyFrameRequestDelayIt->get<uint32_t>();
+			}
+
+			this->keyFrameRequestManager = new RTC::KeyFrameRequestManager(this, keyFrameRequestDelay);
+		}
 	}
 
 	Producer::~Producer()
@@ -339,29 +384,31 @@ namespace RTC
 		// Add paused.
 		jsonObject["paused"] = this->paused;
 
-		// Add packetEventTypes.
-		std::vector<std::string> packetEventTypes;
-		std::ostringstream packetEventTypesStream;
+		// Add traceEventTypes.
+		std::vector<std::string> traceEventTypes;
+		std::ostringstream traceEventTypesStream;
 
-		if (this->packetEventTypes.rtp)
-			packetEventTypes.emplace_back("rtp");
-		if (this->packetEventTypes.nack)
-			packetEventTypes.emplace_back("nack");
-		if (this->packetEventTypes.pli)
-			packetEventTypes.emplace_back("pli");
-		if (this->packetEventTypes.fir)
-			packetEventTypes.emplace_back("fir");
+		if (this->traceEventTypes.rtp)
+			traceEventTypes.emplace_back("rtp");
+		if (this->traceEventTypes.keyframe)
+			traceEventTypes.emplace_back("keyframe");
+		if (this->traceEventTypes.nack)
+			traceEventTypes.emplace_back("nack");
+		if (this->traceEventTypes.pli)
+			traceEventTypes.emplace_back("pli");
+		if (this->traceEventTypes.fir)
+			traceEventTypes.emplace_back("fir");
 
-		if (!packetEventTypes.empty())
+		if (!traceEventTypes.empty())
 		{
 			std::copy(
-			  packetEventTypes.begin(),
-			  packetEventTypes.end() - 1,
-			  std::ostream_iterator<std::string>(packetEventTypesStream, ","));
-			packetEventTypesStream << packetEventTypes.back();
+			  traceEventTypes.begin(),
+			  traceEventTypes.end() - 1,
+			  std::ostream_iterator<std::string>(traceEventTypesStream, ","));
+			traceEventTypesStream << traceEventTypes.back();
 		}
 
-		jsonObject["packetEventTypes"] = packetEventTypesStream.str();
+		jsonObject["traceEventTypes"] = traceEventTypesStream.str();
 	}
 
 	void Producer::FillJsonStats(json& jsonArray) const
@@ -480,7 +527,7 @@ namespace RTC
 				break;
 			}
 
-			case Channel::Request::MethodId::PRODUCER_ENABLE_PACKET_EVENT:
+			case Channel::Request::MethodId::PRODUCER_ENABLE_TRACE_EVENT:
 			{
 				auto jsonTypesIt = request->data.find("types");
 
@@ -488,8 +535,8 @@ namespace RTC
 				if (jsonTypesIt == request->data.end() || !jsonTypesIt->is_array())
 					MS_THROW_TYPE_ERROR("wrong types (not an array)");
 
-				// Reset packetEventTypes.
-				struct PacketEventTypes newPacketEventTypes;
+				// Reset traceEventTypes.
+				struct TraceEventTypes newTraceEventTypes;
 
 				for (const auto& type : *jsonTypesIt)
 				{
@@ -499,16 +546,18 @@ namespace RTC
 					std::string typeStr = type.get<std::string>();
 
 					if (typeStr == "rtp")
-						newPacketEventTypes.rtp = true;
+						newTraceEventTypes.rtp = true;
+					else if (typeStr == "keyframe")
+						newTraceEventTypes.keyframe = true;
 					else if (typeStr == "nack")
-						newPacketEventTypes.nack = true;
+						newTraceEventTypes.nack = true;
 					else if (typeStr == "pli")
-						newPacketEventTypes.pli = true;
+						newTraceEventTypes.pli = true;
 					else if (typeStr == "fir")
-						newPacketEventTypes.fir = true;
+						newTraceEventTypes.fir = true;
 				}
 
-				this->packetEventTypes = newPacketEventTypes;
+				this->traceEventTypes = newTraceEventTypes;
 
 				request->Accept();
 
@@ -612,8 +661,8 @@ namespace RTC
 		if (this->paused)
 			return result;
 
-		// May emit 'packet' event.
-		EmitPacketEventRtpType(packet, isRtx);
+		// May emit 'trace' event.
+		EmitTraceEventRtpAndKeyFrameTypes(packet, isRtx);
 
 		// Mangle the packet before providing the listener with it.
 		if (!MangleRtpPacket(packet, rtpStream))
@@ -1338,32 +1387,47 @@ namespace RTC
 		Channel::Notifier::Emit(this->id, "score", data);
 	}
 
-	inline void Producer::EmitPacketEventRtpType(RTC::RtpPacket* packet, bool isRtx) const
+	inline void Producer::EmitTraceEventRtpAndKeyFrameTypes(RTC::RtpPacket* packet, bool isRtx) const
 	{
 		MS_TRACE();
 
-		if (!this->packetEventTypes.rtp)
-			return;
+		if (this->traceEventTypes.keyframe && packet->IsKeyFrame())
+		{
+			json data = json::object();
 
-		json data = json::object();
+			data["type"]      = "keyframe";
+			data["timestamp"] = DepLibUV::GetTimeMs();
+			data["direction"] = "in";
 
-		data["type"]      = "rtp";
-		data["timestamp"] = DepLibUV::GetTimeMs();
-		data["direction"] = "in";
+			packet->FillJson(data["info"]);
 
-		packet->FillJson(data["info"]);
+			if (isRtx)
+				data["info"]["isRtx"] = true;
 
-		if (isRtx)
-			data["info"]["isRtx"] = true;
+			Channel::Notifier::Emit(this->id, "trace", data);
+		}
+		else if (this->traceEventTypes.rtp)
+		{
+			json data = json::object();
 
-		Channel::Notifier::Emit(this->id, "packet", data);
+			data["type"]      = "rtp";
+			data["timestamp"] = DepLibUV::GetTimeMs();
+			data["direction"] = "in";
+
+			packet->FillJson(data["info"]);
+
+			if (isRtx)
+				data["info"]["isRtx"] = true;
+
+			Channel::Notifier::Emit(this->id, "trace", data);
+		}
 	}
 
-	inline void Producer::EmitPacketEventPliType(uint32_t ssrc) const
+	inline void Producer::EmitTraceEventPliType(uint32_t ssrc) const
 	{
 		MS_TRACE();
 
-		if (!this->packetEventTypes.pli)
+		if (!this->traceEventTypes.pli)
 			return;
 
 		json data = json::object();
@@ -1373,14 +1437,14 @@ namespace RTC
 		data["direction"]    = "out";
 		data["info"]["ssrc"] = ssrc;
 
-		Channel::Notifier::Emit(this->id, "packet", data);
+		Channel::Notifier::Emit(this->id, "trace", data);
 	}
 
-	inline void Producer::EmitPacketEventFirType(uint32_t ssrc) const
+	inline void Producer::EmitTraceEventFirType(uint32_t ssrc) const
 	{
 		MS_TRACE();
 
-		if (!this->packetEventTypes.fir)
+		if (!this->traceEventTypes.fir)
 			return;
 
 		json data = json::object();
@@ -1390,14 +1454,14 @@ namespace RTC
 		data["direction"]    = "out";
 		data["info"]["ssrc"] = ssrc;
 
-		Channel::Notifier::Emit(this->id, "packet", data);
+		Channel::Notifier::Emit(this->id, "trace", data);
 	}
 
-	inline void Producer::EmitPacketEventNackType() const
+	inline void Producer::EmitTraceEventNackType() const
 	{
 		MS_TRACE();
 
-		if (!this->packetEventTypes.nack)
+		if (!this->traceEventTypes.nack)
 			return;
 
 		json data = json::object();
@@ -1407,7 +1471,7 @@ namespace RTC
 		data["direction"] = "out";
 		data["info"]      = json::object();
 
-		Channel::Notifier::Emit(this->id, "packet", data);
+		Channel::Notifier::Emit(this->id, "trace", data);
 	}
 
 	inline void Producer::OnRtpStreamScore(RTC::RtpStream* rtpStream, uint8_t score, uint8_t previousScore)
@@ -1434,16 +1498,16 @@ namespace RTC
 				{
 					case RTC::RTCP::FeedbackPs::MessageType::PLI:
 					{
-						// May emit 'packet' event.
-						EmitPacketEventPliType(feedback->GetMediaSsrc());
+						// May emit 'trace' event.
+						EmitTraceEventPliType(feedback->GetMediaSsrc());
 
 						break;
 					}
 
 					case RTC::RTCP::FeedbackPs::MessageType::FIR:
 					{
-						// May emit 'packet' event.
-						EmitPacketEventFirType(feedback->GetMediaSsrc());
+						// May emit 'trace' event.
+						EmitTraceEventFirType(feedback->GetMediaSsrc());
 
 						break;
 					}
@@ -1460,8 +1524,8 @@ namespace RTC
 				{
 					case RTC::RTCP::FeedbackRtp::MessageType::NACK:
 					{
-						// May emit 'packet' event.
-						EmitPacketEventNackType();
+						// May emit 'trace' event.
+						EmitTraceEventNackType();
 
 						break;
 					}

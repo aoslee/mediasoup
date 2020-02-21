@@ -1,6 +1,6 @@
-import Logger from './Logger';
-import EnhancedEventEmitter from './EnhancedEventEmitter';
-import Channel from './Channel';
+import { Logger } from './Logger';
+import { EnhancedEventEmitter } from './EnhancedEventEmitter';
+import { Channel } from './Channel';
 import { MediaKind, RtpParameters } from './RtpParameters';
 
 export interface ProducerOptions
@@ -26,25 +26,31 @@ export interface ProducerOptions
 	paused?: boolean;
 
 	/**
+	 * Just for video. Time (in ms) before asking the sender for a new key frame
+	 * after having asked a previous one. Default 0.
+	 */
+	keyFrameRequestDelay?: number;
+
+	/**
 	 * Custom application data.
 	 */
 	appData?: any;
 }
 
 /**
- * Valid types for 'packet' event.
+ * Valid types for 'trace' event.
  */
-export type ProducerPacketEventType = 'rtp' | 'nack' | 'pli' | 'fir';
+export type ProducerTraceEventType = 'rtp' | 'keyframe' | 'nack' | 'pli' | 'fir';
 
 /**
- * 'packet' event data.
+ * 'trace' event data.
  */
-export interface ProducerPacketEventData
+export interface ProducerTraceEventData
 {
 	/**
-	 * Type of packet.
+	 * Trace type.
 	 */
-	type: ProducerPacketEventType;
+	type: ProducerTraceEventType;
 
 	/**
 	 * Event timestamp.
@@ -135,7 +141,7 @@ export type ProducerType = 'simple' | 'simulcast' | 'svc';
 
 const logger = new Logger('Producer');
 
-export default class Producer extends EnhancedEventEmitter
+export class Producer extends EnhancedEventEmitter
 {
 	// Internal data.
 	// - .routerId
@@ -171,9 +177,9 @@ export default class Producer extends EnhancedEventEmitter
 	/**
 	 * @private
 	 * @emits transportclose
-	 * @emits {ProducerScore[]} score
-	 * @emits {ProducerVideoOrientation} videoorientationchange
-	 * @emits {ProducerPacketEventData} packet
+	 * @emits score - (score: ProducerScore[])
+	 * @emits videoorientationchange - (videoOrientation: ProducerVideoOrientation)
+	 * @emits trace - (trace: ProducerTraceEventData)
 	 * @emits @close
 	 */
 	constructor(
@@ -193,7 +199,7 @@ export default class Producer extends EnhancedEventEmitter
 		}
 	)
 	{
-		super(logger);
+		super();
 
 		logger.debug('constructor()');
 
@@ -294,9 +300,9 @@ export default class Producer extends EnhancedEventEmitter
 	 * @emits close
 	 * @emits pause
 	 * @emits resume
-	 * @emits {ProducerScore[]} score
-	 * @emits {ProducerVideoOrientation} videoorientationchange
-	 * @emits {ProducerPacketEventData} packet
+	 * @emits score - (score: ProducerScore[])
+	 * @emits videoorientationchange - (videoOrientation: ProducerVideoOrientation)
+	 * @emits trace - (trace: ProducerTraceEventData)
 	 */
 	get observer(): EnhancedEventEmitter
 	{
@@ -407,16 +413,16 @@ export default class Producer extends EnhancedEventEmitter
 	}
 
 	/**
-	 * Enable 'packet' event.
+	 * Enable 'trace' event.
 	 */
-	async enablePacketEvent(types: ProducerPacketEventType[] = []): Promise<void>
+	async enableTraceEvent(types: ProducerTraceEventType[] = []): Promise<void>
 	{
-		logger.debug('enablePacketEvent()');
+		logger.debug('enableTraceEvent()');
 
 		const reqData = { types };
 
 		await this._channel.request(
-			'producer.enablePacketEvent', this._internal, reqData);
+			'producer.enableTraceEvent', this._internal, reqData);
 	}
 
 	private _handleWorkerNotifications(): void
@@ -451,14 +457,14 @@ export default class Producer extends EnhancedEventEmitter
 					break;
 				}
 
-				case 'packet':
+				case 'trace':
 				{
-					const packet = data as ProducerPacketEventData;
+					const trace = data as ProducerTraceEventData;
 
-					this.safeEmit('packet', packet);
+					this.safeEmit('trace', trace);
 
 					// Emit observer event.
-					this._observer.safeEmit('packet', packet);
+					this._observer.safeEmit('trace', trace);
 
 					break;
 				}

@@ -38,7 +38,7 @@ namespace RTC
 
 		if (jsonInitialAvailableOutgoingBitrateIt != data.end())
 		{
-			if (!jsonInitialAvailableOutgoingBitrateIt->is_number_unsigned())
+			if (!Utils::Json::IsPositiveInteger(*jsonInitialAvailableOutgoingBitrateIt))
 				MS_THROW_TYPE_ERROR("wrong initialAvailableOutgoingBitrate (not a number)");
 
 			this->initialAvailableOutgoingBitrate = jsonInitialAvailableOutgoingBitrateIt->get<uint32_t>();
@@ -76,9 +76,9 @@ namespace RTC
 			// clang-format off
 			if (
 				jsonOSIt == jsonNumSctpStreamsIt->end() ||
-				!jsonOSIt->is_number_unsigned() ||
+				!Utils::Json::IsPositiveInteger(*jsonOSIt) ||
 				jsonMISIt == jsonNumSctpStreamsIt->end() ||
-				!jsonMISIt->is_number_unsigned()
+				!Utils::Json::IsPositiveInteger(*jsonMISIt)
 			)
 			// clang-format on
 			{
@@ -92,7 +92,7 @@ namespace RTC
 			// clang-format off
 			if (
 				jsonMaxSctpMessageSizeIt == data.end() ||
-				!jsonMaxSctpMessageSizeIt->is_number_unsigned()
+				!Utils::Json::IsPositiveInteger(*jsonMaxSctpMessageSizeIt)
 			)
 			// clang-format on
 			{
@@ -107,6 +107,7 @@ namespace RTC
 			if (jsonIsDataChannelIt != data.end() && jsonIsDataChannelIt->is_boolean())
 				isDataChannel = jsonIsDataChannelIt->get<bool>();
 
+			// This may throw.
 			this->sctpAssociation =
 			  new RTC::SctpAssociation(this, os, mis, maxSctpMessageSize, isDataChannel);
 		}
@@ -373,23 +374,25 @@ namespace RTC
 			this->sctpListener.FillJson(jsonObject["sctpListener"]);
 		}
 
-		// Add packetEventTypes.
-		std::vector<std::string> packetEventTypes;
-		std::ostringstream packetEventTypesStream;
+		// Add traceEventTypes.
+		std::vector<std::string> traceEventTypes;
+		std::ostringstream traceEventTypesStream;
 
-		if (this->packetEventTypes.probation)
-			packetEventTypes.emplace_back("probation");
+		if (this->traceEventTypes.probation)
+			traceEventTypes.emplace_back("probation");
+		if (this->traceEventTypes.bwe)
+			traceEventTypes.emplace_back("bwe");
 
-		if (!packetEventTypes.empty())
+		if (!traceEventTypes.empty())
 		{
 			std::copy(
-			  packetEventTypes.begin(),
-			  packetEventTypes.end() - 1,
-			  std::ostream_iterator<std::string>(packetEventTypesStream, ","));
-			packetEventTypesStream << packetEventTypes.back();
+			  traceEventTypes.begin(),
+			  traceEventTypes.end() - 1,
+			  std::ostream_iterator<std::string>(traceEventTypesStream, ","));
+			traceEventTypesStream << traceEventTypes.back();
 		}
 
-		jsonObject["packetEventTypes"] = packetEventTypesStream.str();
+		jsonObject["traceEventTypes"] = traceEventTypesStream.str();
 	}
 
 	void Transport::FillJsonStats(json& jsonArray)
@@ -517,8 +520,15 @@ namespace RTC
 			{
 				auto jsonBitrateIt = request->data.find("bitrate");
 
-				if (jsonBitrateIt == request->data.end() || !jsonBitrateIt->is_number_unsigned())
+				// clang-format off
+				if (
+					jsonBitrateIt == request->data.end() ||
+					!Utils::Json::IsPositiveInteger(*jsonBitrateIt)
+				)
+				// clang-format on
+				{
 					MS_THROW_TYPE_ERROR("missing bitrate");
+				}
 
 				this->maxIncomingBitrate = jsonBitrateIt->get<uint32_t>();
 
@@ -781,6 +791,18 @@ namespace RTC
 				data["producerPaused"] = consumer->IsProducerPaused();
 
 				consumer->FillJsonScore(data["score"]);
+
+				auto preferredLayers = consumer->GetPreferredLayers();
+
+				if (preferredLayers.spatial > -1 && preferredLayers.temporal > -1)
+				{
+					data["preferredLayers"]["spatialLayer"]  = preferredLayers.spatial;
+					data["preferredLayers"]["temporalLayer"] = preferredLayers.temporal;
+				}
+				else
+				{
+					data["preferredLayers"] = nullptr;
+				}
 
 				request->Accept(data);
 
@@ -1046,7 +1068,7 @@ namespace RTC
 				break;
 			}
 
-			case Channel::Request::MethodId::TRANSPORT_ENABLE_PACKET_EVENT:
+			case Channel::Request::MethodId::TRANSPORT_ENABLE_TRACE_EVENT:
 			{
 				auto jsonTypesIt = request->data.find("types");
 
@@ -1054,8 +1076,8 @@ namespace RTC
 				if (jsonTypesIt == request->data.end() || !jsonTypesIt->is_array())
 					MS_THROW_TYPE_ERROR("wrong types (not an array)");
 
-				// Reset packetEventTypes.
-				struct PacketEventTypes newPacketEventTypes;
+				// Reset traceEventTypes.
+				struct TraceEventTypes newTraceEventTypes;
 
 				for (const auto& type : *jsonTypesIt)
 				{
@@ -1065,10 +1087,12 @@ namespace RTC
 					std::string typeStr = type.get<std::string>();
 
 					if (typeStr == "probation")
-						newPacketEventTypes.probation = true;
+						newTraceEventTypes.probation = true;
+					if (typeStr == "bwe")
+						newTraceEventTypes.bwe = true;
 				}
 
-				this->packetEventTypes = newPacketEventTypes;
+				this->traceEventTypes = newTraceEventTypes;
 
 				request->Accept();
 
@@ -1138,7 +1162,7 @@ namespace RTC
 			case Channel::Request::MethodId::PRODUCER_GET_STATS:
 			case Channel::Request::MethodId::PRODUCER_PAUSE:
 			case Channel::Request::MethodId::PRODUCER_RESUME:
-			case Channel::Request::MethodId::PRODUCER_ENABLE_PACKET_EVENT:
+			case Channel::Request::MethodId::PRODUCER_ENABLE_TRACE_EVENT:
 			{
 				// This may throw.
 				RTC::Producer* producer = GetProducerFromRequest(request);
@@ -1153,8 +1177,9 @@ namespace RTC
 			case Channel::Request::MethodId::CONSUMER_PAUSE:
 			case Channel::Request::MethodId::CONSUMER_RESUME:
 			case Channel::Request::MethodId::CONSUMER_SET_PREFERRED_LAYERS:
+			case Channel::Request::MethodId::CONSUMER_SET_PRIORITY:
 			case Channel::Request::MethodId::CONSUMER_REQUEST_KEY_FRAME:
-			case Channel::Request::MethodId::CONSUMER_ENABLE_PACKET_EVENT:
+			case Channel::Request::MethodId::CONSUMER_ENABLE_TRACE_EVENT:
 			{
 				// This may throw.
 				RTC::Consumer* consumer = GetConsumerFromRequest(request);
@@ -1639,7 +1664,6 @@ namespace RTC
 				switch (feedback->GetMessageType())
 				{
 					case RTC::RTCP::FeedbackPs::MessageType::PLI:
-					case RTC::RTCP::FeedbackPs::MessageType::FIR:
 					{
 						auto* consumer = GetConsumerByMediaSsrc(feedback->GetMediaSsrc());
 
@@ -1647,25 +1671,60 @@ namespace RTC
 						{
 							MS_DEBUG_TAG(
 							  rtcp,
-							  "no Consumer found for received %s Feedback packet "
+							  "no Consumer found for received PLI Feedback packet "
 							  "[sender ssrc:%" PRIu32 ", media ssrc:%" PRIu32 "]",
-							  RTC::RTCP::FeedbackPsPacket::MessageType2String(feedback->GetMessageType()).c_str(),
 							  feedback->GetMediaSsrc(),
 							  feedback->GetMediaSsrc());
 
 							break;
 						}
 
-						MS_DEBUG_2TAGS(
+						MS_DEBUG_TAG(
 						  rtcp,
-						  rtx,
-						  "%s received, requesting key frame for Consumer "
+						  "PLI received, requesting key frame for Consumer "
 						  "[sender ssrc:%" PRIu32 ", media ssrc:%" PRIu32 "]",
-						  RTC::RTCP::FeedbackPsPacket::MessageType2String(feedback->GetMessageType()).c_str(),
 						  feedback->GetMediaSsrc(),
 						  feedback->GetMediaSsrc());
 
-						consumer->ReceiveKeyFrameRequest(feedback->GetMessageType(), feedback->GetMediaSsrc());
+						consumer->ReceiveKeyFrameRequest(
+						  RTC::RTCP::FeedbackPs::MessageType::PLI, feedback->GetMediaSsrc());
+
+						break;
+					}
+
+					case RTC::RTCP::FeedbackPs::MessageType::FIR:
+					{
+						// Must iterate FIR items.
+						auto* fir = static_cast<RTC::RTCP::FeedbackPsFirPacket*>(packet);
+
+						for (auto it = fir->Begin(); it != fir->End(); ++it)
+						{
+							auto& item     = *it;
+							auto* consumer = GetConsumerByMediaSsrc(item->GetSsrc());
+
+							if (!consumer)
+							{
+								MS_DEBUG_TAG(
+								  rtcp,
+								  "no Consumer found for received FIR Feedback packet "
+								  "[sender ssrc:%" PRIu32 ", media ssrc:%" PRIu32 ", item ssrc:%" PRIu32 "]",
+								  feedback->GetMediaSsrc(),
+								  feedback->GetMediaSsrc(),
+								  item->GetSsrc());
+
+								continue;
+							}
+
+							MS_DEBUG_TAG(
+							  rtcp,
+							  "FIR received, requesting key frame for Consumer "
+							  "[sender ssrc:%" PRIu32 ", media ssrc:%" PRIu32 ", item ssrc:%" PRIu32 "]",
+							  feedback->GetMediaSsrc(),
+							  feedback->GetMediaSsrc(),
+							  item->GetSsrc());
+
+							consumer->ReceiveKeyFrameRequest(feedback->GetMessageType(), item->GetSsrc());
+						}
 
 						break;
 					}
@@ -1815,21 +1874,12 @@ namespace RTC
 
 			case RTC::RTCP::Type::SDES:
 			{
-				auto* sdes = static_cast<RTC::RTCP::SdesPacket*>(packet);
-
-				for (auto it = sdes->Begin(); it != sdes->End(); ++it)
-				{
-					auto& chunk    = *it;
-					auto* producer = this->rtpListener.GetProducer(chunk->GetSsrc());
-
-					if (!producer)
-					{
-						MS_DEBUG_TAG(
-						  rtcp, "no Producer for received SDES chunk [ssrc:%" PRIu32 "]", chunk->GetSsrc());
-
-						continue;
-					}
-				}
+				// According to RFC 3550 section 6.1 "a CNAME item MUST be included in
+				// in each compound RTCP packet". So this is true even for compound
+				// packets sent by endpoints that are not sending any RTP stream to us
+				// (thus chunks in such a SDES will have an SSCR does not match with
+				// any Producer created in this Transport).
+				// Therefore, and given that we do nothing with SDES, just ignore them.
 
 				break;
 			}
@@ -1957,8 +2007,7 @@ namespace RTC
 
 		MS_ASSERT(this->tccClient, "no TransportCongestionClient");
 
-		std::multimap<uint16_t, RTC::Consumer*> multimapPriorityConsumer;
-		uint16_t totalPriorities{ 0u };
+		std::multimap<uint8_t, RTC::Consumer*> multimapPriorityConsumer;
 
 		// Fill the map with Consumers and their priority (if > 0).
 		for (auto& kv : this->mapConsumers)
@@ -1967,101 +2016,64 @@ namespace RTC
 			auto priority  = consumer->GetBitratePriority();
 
 			if (priority > 0u)
-			{
 				multimapPriorityConsumer.emplace(priority, consumer);
-				totalPriorities += priority;
-			}
 		}
 
 		// Nobody wants bitrate. Exit.
-		if (totalPriorities == 0u)
+		if (multimapPriorityConsumer.empty())
 			return;
 
 		uint32_t availableBitrate = this->tccClient->GetAvailableBitrate();
 
 		this->tccClient->RescheduleNextAvailableBitrateEvent();
 
-		MS_DEBUG_DEV("before iterations [availableBitrate:%" PRIu32 "]", availableBitrate);
+		MS_DEBUG_DEV("before layer-by-layer iterations [availableBitrate:%" PRIu32 "]", availableBitrate);
 
-		uint32_t remainingBitrate = availableBitrate;
-
-		// First of all, redistribute the available bitrate by taking into account
-		// Consumers' priorities.
-		for (auto it = multimapPriorityConsumer.rbegin(); it != multimapPriorityConsumer.rend(); ++it)
+		// Redistribute the available bitrate by allowing Consumers to increase
+		// layer by layer. Take into account the priority of each Consumer to
+		// provide it with more bitrate.
+		while (availableBitrate > 0u)
 		{
-			auto priority    = it->first;
-			auto* consumer   = it->second;
-			uint32_t bitrate = (availableBitrate * priority) / totalPriorities;
-
-			MS_DEBUG_DEV(
-			  "main bitrate for Consumer [priority:%" PRIu16 ", bitrate:%" PRIu32 ", consumerId:%s]",
-			  priority,
-			  bitrate,
-			  consumer->id.c_str());
-
-			uint32_t usedBitrate;
-			auto bweType = this->tccClient->GetBweType();
-
-			switch (bweType)
-			{
-				case RTC::BweType::TRANSPORT_CC:
-					usedBitrate = consumer->UseAvailableBitrate(bitrate, /*considerLoss*/ false);
-					break;
-				case RTC::BweType::REMB:
-					usedBitrate = consumer->UseAvailableBitrate(bitrate, /*considerLoss*/ true);
-					break;
-			}
-
-			if (usedBitrate <= remainingBitrate)
-				remainingBitrate -= usedBitrate;
-			else
-				remainingBitrate = 0u;
-		}
-
-		MS_DEBUG_DEV("after first main iteration [remainingBitrate:%" PRIu32 "]", remainingBitrate);
-
-		// Then redistribute the remaining bitrate by allowing Consumers to increase
-		// layer by layer.
-		while (remainingBitrate >= 2000u)
-		{
-			auto previousRemainingBitrate = remainingBitrate;
+			auto previousAvailableBitrate = availableBitrate;
 
 			for (auto it = multimapPriorityConsumer.rbegin(); it != multimapPriorityConsumer.rend(); ++it)
 			{
+				auto priority  = it->first;
 				auto* consumer = it->second;
+				auto bweType   = this->tccClient->GetBweType();
 
-				MS_DEBUG_DEV(
-				  "layer bitrate for Consumer [bitrate:%" PRIu32 ", consumerId:%s]",
-				  remainingBitrate,
-				  consumer->id.c_str());
-
-				uint32_t usedBitrate;
-				auto bweType = this->tccClient->GetBweType();
-
-				switch (bweType)
+				// If a Consumer has priority > 1, call IncreaseLayer() more times to
+				// provide it with more available bitrate to choose its preferred layers.
+				for (uint8_t i{ 1u }; i <= priority; ++i)
 				{
-					case RTC::BweType::TRANSPORT_CC:
-						usedBitrate = consumer->IncreaseLayer(remainingBitrate, /*considerLoss*/ false);
+					uint32_t usedBitrate;
+
+					switch (bweType)
+					{
+						case RTC::BweType::TRANSPORT_CC:
+							usedBitrate = consumer->IncreaseLayer(availableBitrate, /*considerLoss*/ false);
+							break;
+						case RTC::BweType::REMB:
+							usedBitrate = consumer->IncreaseLayer(availableBitrate, /*considerLoss*/ true);
+							break;
+					}
+
+					MS_ASSERT(usedBitrate <= availableBitrate, "Consumer used more layer bitrate than given");
+
+					availableBitrate -= usedBitrate;
+
+					// Exit the loop fast if used bitrate is 0.
+					if (usedBitrate == 0u)
 						break;
-					case RTC::BweType::REMB:
-						usedBitrate = consumer->IncreaseLayer(remainingBitrate, /*considerLoss*/ true);
 				}
-
-				MS_ASSERT(usedBitrate <= remainingBitrate, "Consumer used more layer bitrate than given");
-
-				remainingBitrate -= usedBitrate;
-
-				// No more.
-				if (remainingBitrate < 2000u)
-					break;
 			}
 
 			// If no Consumer used bitrate, exit the loop.
-			if (remainingBitrate == previousRemainingBitrate)
+			if (availableBitrate == previousAvailableBitrate)
 				break;
 		}
 
-		MS_DEBUG_DEV("after layer-by-layer iteration [remainingBitrate:%" PRIu32 "]", remainingBitrate);
+		MS_DEBUG_DEV("after layer-by-layer iterations [availableBitrate:%" PRIu32 "]", availableBitrate);
 
 		// Finally instruct Consumers to apply their computed layers.
 		for (auto it = multimapPriorityConsumer.rbegin(); it != multimapPriorityConsumer.rend(); ++it)
@@ -2093,11 +2105,11 @@ namespace RTC
 		this->tccClient->SetDesiredBitrate(totalDesiredBitrate, forceBitrate);
 	}
 
-	inline void Transport::EmitPacketEventProbationType(RTC::RtpPacket* packet) const
+	inline void Transport::EmitTraceEventProbationType(RTC::RtpPacket* packet) const
 	{
 		MS_TRACE();
 
-		if (!this->packetEventTypes.probation)
+		if (!this->traceEventTypes.probation)
 			return;
 
 		json data = json::object();
@@ -2108,7 +2120,41 @@ namespace RTC
 
 		packet->FillJson(data["info"]);
 
-		Channel::Notifier::Emit(this->id, "packet", data);
+		Channel::Notifier::Emit(this->id, "trace", data);
+	}
+
+	inline void Transport::EmitTraceEventBweType(
+	  RTC::TransportCongestionControlClient::Bitrates& bitrates) const
+	{
+		MS_TRACE();
+
+		if (!this->traceEventTypes.bwe)
+			return;
+
+		json data = json::object();
+
+		data["type"]                            = "bwe";
+		data["timestamp"]                       = DepLibUV::GetTimeMs();
+		data["direction"]                       = "out";
+		data["info"]["desiredBitrate"]          = bitrates.desiredBitrate;
+		data["info"]["effectiveDesiredBitrate"] = bitrates.effectiveDesiredBitrate;
+		data["info"]["minBitrate"]              = bitrates.minBitrate;
+		data["info"]["maxBitrate"]              = bitrates.maxBitrate;
+		data["info"]["startBitrate"]            = bitrates.startBitrate;
+		data["info"]["maxPaddingBitrate"]       = bitrates.maxPaddingBitrate;
+		data["info"]["availableBitrate"]        = bitrates.availableBitrate;
+
+		switch (this->tccClient->GetBweType())
+		{
+			case RTC::BweType::TRANSPORT_CC:
+				data["info"]["type"] = "transport-cc";
+				break;
+			case RTC::BweType::REMB:
+				data["info"]["type"] = "remb";
+				break;
+		}
+
+		Channel::Notifier::Emit(this->id, "trace", data);
 	}
 
 	inline void Transport::OnProducerPaused(RTC::Producer* producer)
@@ -2516,20 +2562,19 @@ namespace RTC
 		dataProducer->ReceiveSctpMessage(ppid, msg, len);
 	}
 
-	inline void Transport::OnTransportCongestionControlClientAvailableBitrate(
+	inline void Transport::OnTransportCongestionControlClientBitrates(
 	  RTC::TransportCongestionControlClient* /*tccClient*/,
-	  uint32_t availableBitrate,         // NOLINT(misc-unused-parameters)
-	  uint32_t previousAvailableBitrate) // NOLINT(misc-unused-parameters)
+	  RTC::TransportCongestionControlClient::Bitrates& bitrates)
 	{
 		MS_TRACE();
 
-		MS_DEBUG_DEV(
-		  "outgoing available bitrate [now:%" PRIu32 ", before:%" PRIu32 "]",
-		  availableBitrate,
-		  previousAvailableBitrate);
+		MS_DEBUG_DEV("outgoing available bitrate:%" PRIu32, bitrates.availableBitrate);
 
 		DistributeAvailableOutgoingBitrate();
 		ComputeOutgoingDesiredBitrate();
+
+		// May emit 'trace' event.
+		EmitTraceEventBweType(bitrates);
 	}
 
 	inline void Transport::OnTransportCongestionControlClientSendRtpPacket(
@@ -2552,8 +2597,8 @@ namespace RTC
 		{
 			this->transportWideCcSeq++;
 
-			// May emit 'packet' event.
-			EmitPacketEventProbationType(packet);
+			// May emit 'trace' event.
+			EmitTraceEventProbationType(packet);
 
 			webrtc::RtpPacketSendInfo packetInfo;
 
@@ -2599,8 +2644,8 @@ namespace RTC
 		}
 		else
 		{
-			// May emit 'packet' event.
-			EmitPacketEventProbationType(packet);
+			// May emit 'trace' event.
+			EmitTraceEventProbationType(packet);
 
 			SendRtpPacket(packet);
 		}

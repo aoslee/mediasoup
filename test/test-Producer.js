@@ -30,17 +30,17 @@ const mediaCodecs =
 		clockRate : 90000
 	},
 	{
-		kind         : 'video',
-		mimeType     : 'video/H264',
-		clockRate    : 90000,
-		rtcpFeedback : [], // Will be ignored.
-		parameters   :
+		kind       : 'video',
+		mimeType   : 'video/H264',
+		clockRate  : 90000,
+		parameters :
 		{
 			'level-asymmetry-allowed' : 1,
 			'packetization-mode'      : 1,
 			'profile-level-id'        : '4d0032',
 			foo                       : 'bar'
-		}
+		},
+		rtcpFeedback : [] // Will be ignored.
 	}
 ];
 
@@ -76,7 +76,7 @@ test('transport1.produce() succeeds', async () =>
 				[
 					{
 						mimeType    : 'audio/opus',
-						payloadType : 111,
+						payloadType : 0,
 						clockRate   : 48000,
 						channels    : 2,
 						parameters  :
@@ -410,7 +410,7 @@ test('transport.produce() with already used MID or SSRC rejects with Error', asy
 				[
 					{
 						mimeType    : 'audio/opus',
-						payloadType : 111,
+						payloadType : 0,
 						clockRate   : 48000,
 						channels    : 2
 					}
@@ -505,7 +505,7 @@ test('producer.dump() succeeds', async () =>
 	expect(data.rtpParameters.codecs).toBeType('array');
 	expect(data.rtpParameters.codecs.length).toBe(1);
 	expect(data.rtpParameters.codecs[0].mimeType).toBe('audio/opus');
-	expect(data.rtpParameters.codecs[0].payloadType).toBe(111);
+	expect(data.rtpParameters.codecs[0].payloadType).toBe(0);
 	expect(data.rtpParameters.codecs[0].clockRate).toBe(48000);
 	expect(data.rtpParameters.codecs[0].channels).toBe(2);
 	expect(data.rtpParameters.codecs[0].parameters)
@@ -538,7 +538,7 @@ test('producer.dump() succeeds', async () =>
 	expect(data.rtpParameters.encodings.length).toBe(1);
 	expect(data.rtpParameters.encodings).toEqual(
 		[
-			{ codecPayloadType: 111 }
+			{ codecPayloadType: 0 }
 		]);
 	expect(data.type).toBe('simple');
 
@@ -637,40 +637,40 @@ test('producer.pause() and resume() succeed', async () =>
 		.toMatchObject({ paused: false });
 }, 2000);
 
-test('producer.enablePacketEvent() succeed', async () =>
+test('producer.enableTraceEvent() succeed', async () =>
 {
-	await audioProducer.enablePacketEvent([ 'rtp', 'pli' ]);
+	await audioProducer.enableTraceEvent([ 'rtp', 'pli' ]);
 	await expect(audioProducer.dump())
 		.resolves
-		.toMatchObject({ packetEventTypes: 'rtp,pli' });
+		.toMatchObject({ traceEventTypes: 'rtp,pli' });
 
-	await audioProducer.enablePacketEvent([]);
+	await audioProducer.enableTraceEvent([]);
 	await expect(audioProducer.dump())
 		.resolves
-		.toMatchObject({ packetEventTypes: '' });
+		.toMatchObject({ traceEventTypes: '' });
 
-	await audioProducer.enablePacketEvent([ 'nack', 'FOO', 'fir' ]);
+	await audioProducer.enableTraceEvent([ 'nack', 'FOO', 'fir' ]);
 	await expect(audioProducer.dump())
 		.resolves
-		.toMatchObject({ packetEventTypes: 'nack,fir' });
+		.toMatchObject({ traceEventTypes: 'nack,fir' });
 
-	await audioProducer.enablePacketEvent();
+	await audioProducer.enableTraceEvent();
 	await expect(audioProducer.dump())
 		.resolves
-		.toMatchObject({ packetEventTypes: '' });
+		.toMatchObject({ traceEventTypes: '' });
 }, 2000);
 
-test('producer.enablePacketEvent() with wrong arguments rejects with TypeError', async () =>
+test('producer.enableTraceEvent() with wrong arguments rejects with TypeError', async () =>
 {
-	await expect(audioProducer.enablePacketEvent(123))
+	await expect(audioProducer.enableTraceEvent(123))
 		.rejects
 		.toThrow(TypeError);
 
-	await expect(audioProducer.enablePacketEvent('rtp'))
+	await expect(audioProducer.enableTraceEvent('rtp'))
 		.rejects
 		.toThrow(TypeError);
 
-	await expect(audioProducer.enablePacketEvent([ 'fir', 123.123 ]))
+	await expect(audioProducer.enableTraceEvent([ 'fir', 123.123 ]))
 		.rejects
 		.toThrow(TypeError);
 }, 2000);

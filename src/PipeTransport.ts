@@ -1,14 +1,15 @@
 import uuidv4 from 'uuid/v4';
-import Logger from './Logger';
-import EnhancedEventEmitter from './EnhancedEventEmitter';
+import { Logger } from './Logger';
+import { EnhancedEventEmitter } from './EnhancedEventEmitter';
 import * as ortc from './ortc';
-import Transport, {
+import {
+	Transport,
 	TransportListenIp,
 	TransportTuple,
-	TransportPacketEventData,
+	TransportTraceEventData,
 	SctpState
 } from './Transport';
-import Consumer, { ConsumerOptions } from './Consumer';
+import { Consumer, ConsumerOptions } from './Consumer';
 import { SctpParameters, NumSctpStreams } from './SctpParameters';
 
 export interface PipeTransportOptions
@@ -73,7 +74,7 @@ export interface PipeTransportStat
 
 const logger = new Logger('PipeTransport');
 
-export default class PipeTransport extends Transport
+export class PipeTransport extends Transport
 {
 	// PipeTransport data.
 	// - .tuple
@@ -91,8 +92,8 @@ export default class PipeTransport extends Transport
 
 	/**
 	 * @private
-	 * @emits {sctpState: SctpState} sctpstatechange
-	 * @emits {TransportPacketEventData} packet
+	 * @emits sctpstatechange - (sctpState: SctpState)
+	 * @emits trace - (trace: TransportTraceEventData)
 	 */
 	constructor(params: any)
 	{
@@ -141,12 +142,12 @@ export default class PipeTransport extends Transport
 	 *
 	 * @override
 	 * @emits close
-	 * @emits {producer: Producer} newproducer
-	 * @emits {consumer: Consumer} newconsumer
-	 * @emits {producer: DataProducer} newdataproducer
-	 * @emits {consumer: DataConsumer} newdataconsumer
-	 * @emits {sctpState: SctpState} sctpstatechange
-	 * @emits {TransportPacketEventData} packet
+	 * @emits newproducer - (producer: Producer)
+	 * @emits newconsumer - (producer: Producer)
+	 * @emits newdataproducer - (dataProducer: DataProducer)
+	 * @emits newdataconsumer - (dataProducer: DataProducer)
+	 * @emits sctpstatechange - (sctpState: SctpState)
+	 * @emits trace - (trace: TransportTraceEventData)
 	 */
 	get observer(): EnhancedEventEmitter
 	{
@@ -302,14 +303,14 @@ export default class PipeTransport extends Transport
 					break;
 				}
 
-				case 'packet':
+				case 'trace':
 				{
-					const packet = data as TransportPacketEventData;
+					const trace = data as TransportTraceEventData;
 
-					this.safeEmit('packet', packet);
+					this.safeEmit('trace', trace);
 
 					// Emit observer event.
-					this._observer.safeEmit('packet', packet);
+					this._observer.safeEmit('trace', trace);
 
 					break;
 				}

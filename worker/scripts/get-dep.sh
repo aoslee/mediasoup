@@ -55,7 +55,7 @@ function get_gyp()
 function get_json()
 {
 	GIT_REPO="https://github.com/nlohmann/json.git"
-	GIT_TAG="v3.7.2"
+	GIT_TAG="v3.7.3"
 	DEST="deps/json"
 
 	get_dep "${GIT_REPO}" "${GIT_TAG}" "${DEST}"
@@ -80,7 +80,7 @@ function get_netstring()
 function get_libuv()
 {
 	GIT_REPO="https://github.com/libuv/libuv.git"
-	GIT_TAG="v1.33.1"
+	GIT_TAG="v1.34.2"
 	DEST="deps/libuv"
 
 	get_dep "${GIT_REPO}" "${GIT_TAG}" "${DEST}"
@@ -95,7 +95,7 @@ function get_openssl()
 function get_libsrtp()
 {
 	GIT_REPO="https://github.com/cisco/libsrtp.git"
-	GIT_TAG="v2.2.0"
+	GIT_TAG="v2.3.0"
 	DEST="deps/libsrtp/srtp"
 
 	get_dep "${GIT_REPO}" "${GIT_TAG}" "${DEST}"
@@ -108,6 +108,10 @@ function get_usrsctp()
 	DEST="deps/usrsctp/usrsctp"
 
 	get_dep "${GIT_REPO}" "${GIT_TAG}" "${DEST}"
+
+	echo ">>> [INFO] deleting large files and directories ..."
+	rm -rf \
+		${DEST}/fuzzer/
 }
 
 function get_abseil_cpp()
@@ -122,14 +126,10 @@ function get_abseil_cpp()
 function get_catch()
 {
 	GIT_REPO="https://github.com/catchorg/Catch2.git"
-	GIT_TAG="v2.11.0"
+	GIT_TAG="v2.11.1"
 	DEST="deps/catch"
 
 	get_dep "${GIT_REPO}" "${GIT_TAG}" "${DEST}"
-
-	echo ">>> [INFO] copying include file to test/include/ directory ..."
-	cd ${WORKER_PWD}
-	cp ${DEST}/single_include/catch2/catch.hpp test/include/
 }
 
 function get_lcov()

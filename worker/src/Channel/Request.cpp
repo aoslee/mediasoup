@@ -4,6 +4,7 @@
 #include "Channel/Request.hpp"
 #include "Logger.hpp"
 #include "MediaSoupErrors.hpp"
+#include "Utils.hpp"
 
 namespace Channel
 {
@@ -13,6 +14,7 @@ namespace Channel
 	std::unordered_map<std::string, Request::MethodId> Request::string2MethodId =
 	{
 		{ "worker.dump",                     Request::MethodId::WORKER_DUMP                        },
+		{ "worker.getResourceUsage",         Request::MethodId::WORKER_GET_RESOURCE_USAGE          },
 		{ "worker.updateSettings",           Request::MethodId::WORKER_UPDATE_SETTINGS             },
 		{ "worker.createRouter",             Request::MethodId::WORKER_CREATE_ROUTER               },
 		{ "router.close",                    Request::MethodId::ROUTER_CLOSE                       },
@@ -31,21 +33,22 @@ namespace Channel
 		{ "transport.consume",               Request::MethodId::TRANSPORT_CONSUME                  },
 		{ "transport.produceData",           Request::MethodId::TRANSPORT_PRODUCE_DATA             },
 		{ "transport.consumeData",           Request::MethodId::TRANSPORT_CONSUME_DATA             },
-		{ "transport.enablePacketEvent",     Request::MethodId::TRANSPORT_ENABLE_PACKET_EVENT      },
+		{ "transport.enableTraceEvent",      Request::MethodId::TRANSPORT_ENABLE_TRACE_EVENT       },
 		{ "producer.close",                  Request::MethodId::PRODUCER_CLOSE                     },
 		{ "producer.dump",                   Request::MethodId::PRODUCER_DUMP                      },
 		{ "producer.getStats",               Request::MethodId::PRODUCER_GET_STATS                 },
 		{ "producer.pause",                  Request::MethodId::PRODUCER_PAUSE                     },
 		{ "producer.resume" ,                Request::MethodId::PRODUCER_RESUME                    },
-		{ "producer.enablePacketEvent",      Request::MethodId::PRODUCER_ENABLE_PACKET_EVENT       },
+		{ "producer.enableTraceEvent",       Request::MethodId::PRODUCER_ENABLE_TRACE_EVENT        },
 		{ "consumer.close",                  Request::MethodId::CONSUMER_CLOSE                     },
 		{ "consumer.dump",                   Request::MethodId::CONSUMER_DUMP                      },
 		{ "consumer.getStats",               Request::MethodId::CONSUMER_GET_STATS                 },
 		{ "consumer.pause",                  Request::MethodId::CONSUMER_PAUSE                     },
 		{ "consumer.resume",                 Request::MethodId::CONSUMER_RESUME                    },
 		{ "consumer.setPreferredLayers",     Request::MethodId::CONSUMER_SET_PREFERRED_LAYERS      },
+		{ "consumer.setPriority",            Request::MethodId::CONSUMER_SET_PRIORITY              },
 		{ "consumer.requestKeyFrame",        Request::MethodId::CONSUMER_REQUEST_KEY_FRAME         },
-		{ "consumer.enablePacketEvent",      Request::MethodId::CONSUMER_ENABLE_PACKET_EVENT       },
+		{ "consumer.enableTraceEvent",       Request::MethodId::CONSUMER_ENABLE_TRACE_EVENT        },
 		{ "dataProducer.close",              Request::MethodId::DATA_PRODUCER_CLOSE                },
 		{ "dataProducer.dump",               Request::MethodId::DATA_PRODUCER_DUMP                 },
 		{ "dataProducer.getStats",           Request::MethodId::DATA_PRODUCER_GET_STATS            },
@@ -68,7 +71,7 @@ namespace Channel
 
 		auto jsonIdIt = jsonRequest.find("id");
 
-		if (jsonIdIt == jsonRequest.end() || !jsonIdIt->is_number_unsigned())
+		if (jsonIdIt == jsonRequest.end() || !Utils::Json::IsPositiveInteger(*jsonIdIt))
 			MS_THROW_ERROR("missing id");
 
 		this->id = jsonIdIt->get<uint32_t>();

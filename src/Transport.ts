@@ -1,13 +1,13 @@
 import uuidv4 from 'uuid/v4';
-import Logger from './Logger';
-import EnhancedEventEmitter from './EnhancedEventEmitter';
+import { Logger } from './Logger';
+import { EnhancedEventEmitter } from './EnhancedEventEmitter';
 import * as utils from './utils';
 import * as ortc from './ortc';
-import Channel from './Channel';
-import Producer, { ProducerOptions } from './Producer';
-import Consumer, { ConsumerOptions } from './Consumer';
-import DataProducer, { DataProducerOptions } from './DataProducer';
-import DataConsumer, { DataConsumerOptions } from './DataConsumer';
+import { Channel } from './Channel';
+import { Producer, ProducerOptions } from './Producer';
+import { Consumer, ConsumerOptions } from './Consumer';
+import { DataProducer, DataProducerOptions } from './DataProducer';
+import { DataConsumer, DataConsumerOptions } from './DataConsumer';
 import { RtpCapabilities } from './RtpParameters';
 import { SctpStreamParameters } from './SctpParameters';
 
@@ -40,19 +40,19 @@ export interface TransportTuple
 }
 
 /**
- * Valid types for 'packet' event.
+ * Valid types for 'trace' event.
  */
-export type TransportPacketEventType = 'probation';
+export type TransportTraceEventType = 'probation' | 'bwe';
 
 /**
- * 'packet' event data.
+ * 'trace' event data.
  */
-export interface TransportPacketEventData
+export interface TransportTraceEventData
 {
 	/**
-	 * Type of packet.
+	 * Trace type.
 	 */
-	type: TransportPacketEventType;
+	type: TransportTraceEventType;
 
 	/**
 	 * Event timestamp.
@@ -74,7 +74,7 @@ export type SctpState = 'new' | 'connecting' | 'connected' | 'failed' | 'closed'
 
 const logger = new Logger('Transport');
 
-export default class Transport extends EnhancedEventEmitter
+export class Transport extends EnhancedEventEmitter
 {
 	// Internal data.
 	// - .routerId
@@ -131,10 +131,10 @@ export default class Transport extends EnhancedEventEmitter
 	 * @interface
 	 * @emits routerclose
 	 * @emits @close
-	 * @emits @newproducer
-	 * @emits @producerclose
-	 * @emits @newdataproducer
-	 * @emits @dataproducerclose
+	 * @emits @newproducer - (producer: Producer)
+	 * @emits @producerclose - (producer: Producer)
+	 * @emits @newdataproducer - (dataProducer: DataProducer)
+	 * @emits @dataproducerclose - (dataProducer: DataProducer)
 	 */
 	constructor(
 		{
@@ -157,7 +157,7 @@ export default class Transport extends EnhancedEventEmitter
 		}
 	)
 	{
-		super(logger);
+		super();
 
 		logger.debug('constructor()');
 
@@ -206,10 +206,10 @@ export default class Transport extends EnhancedEventEmitter
 	 * Observer.
 	 *
 	 * @emits close
-	 * @emits {producer: Producer} newproducer
-	 * @emits {consumer: Consumer} newconsumer
-	 * @emits {producer: DataProducer} newdataproducer
-	 * @emits {consumer: DataConsumer} newdataconsumer
+	 * @emits newproducer - (producer: Producer)
+	 * @emits newconsumer - (producer: Producer)
+	 * @emits newdataproducer - (dataProducer: DataProducer)
+	 * @emits newdataconsumer - (dataProducer: DataProducer)
 	 */
 	get observer(): EnhancedEventEmitter
 	{
@@ -347,7 +347,7 @@ export default class Transport extends EnhancedEventEmitter
 	 *
 	 * @abstract
 	 */
-	async getStats(): Promise<any>
+	async getStats(): Promise<any[]>
 	{
 		// Should not happen.
 		throw new Error('method not implemented in the subclass');
@@ -387,6 +387,7 @@ export default class Transport extends EnhancedEventEmitter
 			kind,
 			rtpParameters,
 			paused = false,
+			keyFrameRequestDelay,
 			appData = {}
 		}: ProducerOptions
 	): Promise<Producer>
@@ -397,14 +398,21 @@ export default class Transport extends EnhancedEventEmitter
 			throw new TypeError(`a Producer with same id "${id}" already exists`);
 		else if (![ 'audio', 'video' ].includes(kind))
 			throw new TypeError(`invalid kind "${kind}"`);
-		else if (typeof rtpParameters !== 'object')
-			throw new TypeError('missing rtpParameters');
 		else if (appData && typeof appData !== 'object')
 			throw new TypeError('if given, appData must be an object');
 
-		// If missing encodings, add one.
-		if (!rtpParameters.encodings || !Array.isArray(rtpParameters.encodings))
+		// This may throw.
+		ortc.validateRtpParameters(rtpParameters);
+
+		// If missing or empty encodings, add one.
+		if (
+			!rtpParameters.encodings ||
+			!Array.isArray(rtpParameters.encodings) ||
+			rtpParameters.encodings.length === 0
+		)
+		{
 			rtpParameters.encodings = [ {} ];
+		}
 
 		// Don't do this in PipeTransports since there we must keep CNAME value in
 		// each Producer.
@@ -439,7 +447,7 @@ export default class Transport extends EnhancedEventEmitter
 			kind, rtpParameters, routerRtpCapabilities, rtpMapping);
 
 		const internal = { ...this._internal, producerId: id || uuidv4() };
-		const reqData = { kind, rtpParameters, rtpMapping, paused };
+		const reqData = { kind, rtpParameters, rtpMapping, keyFrameRequestDelay, paused };
 
 		const status =
 			await this._channel.request('transport.produce', internal, reqData);
@@ -495,10 +503,11 @@ export default class Transport extends EnhancedEventEmitter
 
 		if (!producerId || typeof producerId !== 'string')
 			throw new TypeError('missing producerId');
-		else if (typeof rtpCapabilities !== 'object')
-			throw new TypeError('missing rtpCapabilities');
 		else if (appData && typeof appData !== 'object')
 			throw new TypeError('if given, appData must be an object');
+
+		// This may throw.
+		ortc.validateRtpCapabilities(rtpCapabilities);
 
 		const producer = this._getProducerById(producerId);
 
@@ -529,11 +538,12 @@ export default class Transport extends EnhancedEventEmitter
 			{
 				internal,
 				data,
-				channel        : this._channel,
+				channel         : this._channel,
 				appData,
-				paused         : status.paused,
-				producerPaused : status.producerPaused,
-				score          : status.score
+				paused          : status.paused,
+				producerPaused  : status.producerPaused,
+				score           : status.score,
+				preferredLayers : status.preferredLayers
 			});
 
 		this._consumers.set(consumer.id, consumer);
@@ -563,10 +573,11 @@ export default class Transport extends EnhancedEventEmitter
 
 		if (id && this._dataProducers.has(id))
 			throw new TypeError(`a DataProducer with same id "${id}" already exists`);
-		else if (typeof sctpStreamParameters !== 'object')
-			throw new TypeError('missing sctpStreamParameters');
 		else if (appData && typeof appData !== 'object')
 			throw new TypeError('if given, appData must be an object');
+
+		// This may throw.
+		ortc.validateSctpStreamParameters(sctpStreamParameters);
 
 		const internal = { ...this._internal, dataProducerId: id || uuidv4() };
 		const reqData = { sctpStreamParameters, label, protocol };
@@ -665,16 +676,16 @@ export default class Transport extends EnhancedEventEmitter
 	}
 
 	/**
-	 * Enable 'packet' event.
+	 * Enable 'trace' event.
 	 */
-	async enablePacketEvent(types: TransportPacketEventType[] = []): Promise<void>
+	async enableTraceEvent(types: TransportTraceEventType[] = []): Promise<void>
 	{
 		logger.debug('pause()');
 
 		const reqData = { types };
 
 		await this._channel.request(
-			'transport.enablePacketEvent', this._internal, reqData);
+			'transport.enableTraceEvent', this._internal, reqData);
 	}
 
 	private _getNextSctpStreamId(): number

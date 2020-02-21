@@ -20,13 +20,13 @@ namespace RTC
 		void FillJsonStats(json& jsonArray) const override;
 		void FillJsonScore(json& jsonObject) const override;
 		void HandleRequest(Channel::Request* request) override;
+		RTC::Consumer::Layers GetPreferredLayers() const override;
 		bool IsActive() const override;
 		void ProducerRtpStream(RTC::RtpStream* rtpStream, uint32_t mappedSsrc) override;
 		void ProducerNewRtpStream(RTC::RtpStream* rtpStream, uint32_t mappedSsrc) override;
 		void ProducerRtpStreamScore(RTC::RtpStream* rtpStream, uint8_t score, uint8_t previousScore) override;
 		void ProducerRtcpSenderReport(RTC::RtpStream* rtpStream, bool first) override;
-		uint16_t GetBitratePriority() const override;
-		uint32_t UseAvailableBitrate(uint32_t bitrate, bool considerLoss) override;
+		uint8_t GetBitratePriority() const override;
 		uint32_t IncreaseLayer(uint32_t bitrate, bool considerLoss) override;
 		void ApplyLayers() override;
 		uint32_t GetDesiredBitrate() const override;
@@ -76,9 +76,25 @@ namespace RTC
 
 	/* Inline methods. */
 
+	inline RTC::Consumer::Layers SvcConsumer::GetPreferredLayers() const
+	{
+		RTC::Consumer::Layers layers;
+
+		layers.spatial  = this->preferredSpatialLayer;
+		layers.temporal = this->preferredTemporalLayer;
+
+		return layers;
+	}
+
 	inline bool SvcConsumer::IsActive() const
 	{
-		return (RTC::Consumer::IsActive() && this->producerRtpStream);
+		// clang-format off
+		return (
+			RTC::Consumer::IsActive() &&
+			this->producerRtpStream &&
+			this->producerRtpStream->GetScore() > 0u
+		);
+		// clang-format on
 	}
 
 	inline std::vector<RTC::RtpStreamSend*> SvcConsumer::GetRtpStreams()

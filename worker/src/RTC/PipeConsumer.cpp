@@ -98,6 +98,15 @@ namespace RTC
 				break;
 			}
 
+			case Channel::Request::MethodId::CONSUMER_SET_PREFERRED_LAYERS:
+			{
+				// Do nothing.
+
+				request->Accept();
+
+				break;
+			}
+
 			default:
 			{
 				// Pass it to the parent class.
@@ -135,15 +144,7 @@ namespace RTC
 		// Do nothing.
 	}
 
-	uint16_t PipeConsumer::GetBitratePriority() const
-	{
-		MS_TRACE();
-
-		// PipeConsumer does not play the BWE game.
-		return 0u;
-	}
-
-	uint32_t PipeConsumer::UseAvailableBitrate(uint32_t /*bitrate*/, bool /*considerLoss*/)
+	uint8_t PipeConsumer::GetBitratePriority() const
 	{
 		MS_TRACE();
 
@@ -245,8 +246,8 @@ namespace RTC
 			// Send the packet.
 			this->listener->OnConsumerSendRtpPacket(this, packet);
 
-			// May emit 'packet' event.
-			EmitPacketEventRtpType(packet);
+			// May emit 'trace' event.
+			EmitTraceEventRtpAndKeyFrameTypes(packet);
 		}
 		else
 		{
@@ -332,14 +333,14 @@ namespace RTC
 		{
 			case RTC::RTCP::FeedbackPs::MessageType::PLI:
 			{
-				EmitPacketEventPliType(ssrc);
+				EmitTraceEventPliType(ssrc);
 
 				break;
 			}
 
 			case RTC::RTCP::FeedbackPs::MessageType::FIR:
 			{
-				EmitPacketEventFirType(ssrc);
+				EmitTraceEventFirType(ssrc);
 
 				break;
 			}
@@ -573,7 +574,7 @@ namespace RTC
 
 		this->listener->OnConsumerRetransmitRtpPacket(this, packet);
 
-		// May emit 'packet' event.
-		EmitPacketEventRtpType(packet, rtpStream->HasRtx());
+		// May emit 'trace' event.
+		EmitTraceEventRtpAndKeyFrameTypes(packet, rtpStream->HasRtx());
 	}
 } // namespace RTC

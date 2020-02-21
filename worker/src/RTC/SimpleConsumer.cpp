@@ -92,6 +92,15 @@ namespace RTC
 				break;
 			}
 
+			case Channel::Request::MethodId::CONSUMER_SET_PREFERRED_LAYERS:
+			{
+				// Do nothing.
+
+				request->Accept();
+
+				break;
+			}
+
 			default:
 			{
 				// Pass it to the parent class.
@@ -136,43 +145,78 @@ namespace RTC
 		// Do nothing.
 	}
 
-	uint16_t SimpleConsumer::GetBitratePriority() const
+	uint8_t SimpleConsumer::GetBitratePriority() const
 	{
 		MS_TRACE();
 
-		// SimpleConsumer does not play the BWE game.
-		return 0u;
+		MS_ASSERT(this->externallyManagedBitrate, "bitrate is not externally managed");
+
+		// Audio SimpleConsumer does not play the BWE game.
+		if (this->kind != RTC::Media::Kind::VIDEO)
+			return 0u;
+
+		if (!IsActive())
+			return 0u;
+
+		return this->priority;
 	}
 
-	uint32_t SimpleConsumer::UseAvailableBitrate(uint32_t /*bitrate*/, bool /*considerLoss*/)
+	uint32_t SimpleConsumer::IncreaseLayer(uint32_t bitrate, bool /*considerLoss*/)
 	{
 		MS_TRACE();
 
-		// SimpleConsumer does not play the BWE game.
-		return 0u;
-	}
+		MS_ASSERT(this->externallyManagedBitrate, "bitrate is not externally managed");
+		MS_ASSERT(this->kind == RTC::Media::Kind::VIDEO, "should be video");
+		MS_ASSERT(IsActive(), "should be active");
 
-	uint32_t SimpleConsumer::IncreaseLayer(uint32_t /*bitrate*/, bool /*considerLoss*/)
-	{
-		MS_TRACE();
+		// If this is not the first time this method is called within the same iteration,
+		// return 0 since a video SimpleConsumer does not keep state about this.
+		if (this->managingBitrate)
+			return 0u;
 
-		// SimpleConsumer does not play the BWE game.
-		return 0u;
+		this->managingBitrate = true;
+
+		// Video SimpleConsumer does not really play the BWE game when. However, let's
+		// be honest and try to be nice.
+		auto nowMs          = DepLibUV::GetTimeMs();
+		auto desiredBitrate = this->producerRtpStream->GetBitrate(nowMs, 0u, 0u);
+
+		if (desiredBitrate < bitrate)
+			return desiredBitrate;
+		else
+			return bitrate;
 	}
 
 	void SimpleConsumer::ApplyLayers()
 	{
 		MS_TRACE();
 
-		// SimpleConsumer does not play the BWE game.
+		MS_ASSERT(this->externallyManagedBitrate, "bitrate is not externally managed");
+		MS_ASSERT(this->kind == RTC::Media::Kind::VIDEO, "should be video");
+		MS_ASSERT(IsActive(), "should be active");
+
+		this->managingBitrate = false;
+
+		// SimpleConsumer does not play the BWE game (even if video kind).
 	}
 
 	uint32_t SimpleConsumer::GetDesiredBitrate() const
 	{
 		MS_TRACE();
 
-		// SimpleConsumer does not play the BWE game.
-		return 0u;
+		MS_ASSERT(this->externallyManagedBitrate, "bitrate is not externally managed");
+
+		// Audio SimpleConsumer does not play the BWE game.
+		if (this->kind != RTC::Media::Kind::VIDEO)
+			return 0u;
+
+		if (!IsActive())
+			return 0u;
+
+		auto nowMs          = DepLibUV::GetTimeMs();
+		auto desiredBitrate = this->producerRtpStream->GetBitrate(nowMs, 0u, 0u);
+
+		return desiredBitrate;
 	}
 
 	void SimpleConsumer::SendRtpPacket(RTC::RtpPacket* packet)
@@ -243,8 +287,8 @@ namespace RTC
 			// Send the packet.
 			this->listener->OnConsumerSendRtpPacket(this, packet);
 
-			// May emit 'packet' event.
-			EmitPacketEventRtpType(packet);
+			// May emit 'trace' event.
+			EmitTraceEventRtpAndKeyFrameTypes(packet);
 		}
 		else
 		{
@@ -310,8 +354,8 @@ namespace RTC
 		if (!IsActive())
 			return;
 
-		// May emit 'packet' event.
-		EmitPacketEventNackType();
+		// May emit 'trace' event.
+		EmitTraceEventNackType();
 
 		this->rtpStream->ReceiveNack(nackPacket);
 	}
@@ -325,14 +369,14 @@ namespace RTC
 		{
 			case RTC::RTCP::FeedbackPs::MessageType::PLI:
 			{
-				EmitPacketEventPliType(ssrc);
+				EmitTraceEventPliType(ssrc);
 
 				break;
 			}
 
 			case RTC::RTCP::FeedbackPs::MessageType::FIR:
 			{
-				EmitPacketEventFirType(ssrc);
+				EmitTraceEventFirType(ssrc);
 
 				break;
 			}
@@ -392,6 +436,9 @@ namespace RTC
 		MS_TRACE();
 
 		this->rtpStream->Pause();
+
+		if (this->externallyManagedBitrate && this->kind == RTC::Media::Kind::VIDEO)
+			this->listener->OnConsumerNeedZeroBitrate(this);
 	}
 
 	void SimpleConsumer::UserOnResumed()
@@ -524,7 +571,7 @@ namespace RTC
 
 		this->listener->OnConsumerRetransmitRtpPacket(this, packet);
 
-		// May emit 'packet' event.
-		EmitPacketEventRtpType(packet, this->rtpStream->HasRtx());
+		// May emit 'trace' event.
+		EmitTraceEventRtpAndKeyFrameTypes(packet, this->rtpStream->HasRtx());
 	}
 } // namespace RTC

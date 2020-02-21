@@ -23,8 +23,7 @@ namespace RTC
 		void ProducerNewRtpStream(RTC::RtpStream* rtpStream, uint32_t mappedSsrc) override;
 		void ProducerRtpStreamScore(RTC::RtpStream* rtpStream, uint8_t score, uint8_t previousScore) override;
 		void ProducerRtcpSenderReport(RTC::RtpStream* rtpStream, bool first) override;
-		uint16_t GetBitratePriority() const override;
-		uint32_t UseAvailableBitrate(uint32_t bitrate, bool considerLoss) override;
+		uint8_t GetBitratePriority() const override;
 		uint32_t IncreaseLayer(uint32_t bitrate, bool considerLoss) override;
 		void ApplyLayers() override;
 		uint32_t GetDesiredBitrate() const override;
@@ -61,13 +60,20 @@ namespace RTC
 		bool keyFrameSupported{ false };
 		bool syncRequired{ false };
 		RTC::SeqManager<uint16_t> rtpSeqManager;
+		bool managingBitrate{ false };
 	};
 
 	/* Inline methods. */
 
 	inline bool SimpleConsumer::IsActive() const
 	{
-		return (RTC::Consumer::IsActive() && this->producerRtpStream);
+		// clang-format off
+		return (
+			RTC::Consumer::IsActive() &&
+			this->producerRtpStream &&
+			this->producerRtpStream->GetScore() > 0u
+		);
+		// clang-format on
 	}
 
 	inline std::vector<RTC::RtpStreamSend*> SimpleConsumer::GetRtpStreams()
