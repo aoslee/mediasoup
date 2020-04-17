@@ -51,7 +51,7 @@ afterAll(() => worker.close());
 
 beforeEach(async () =>
 {
-	transport = await router.createPlainRtpTransport(
+	transport = await router.createPlainTransport(
 		{
 			listenIp : { ip: '127.0.0.1', announcedIp: '4.4.4.4' },
 			rtcpMux  : false
@@ -60,7 +60,7 @@ beforeEach(async () =>
 
 afterEach(() => transport.close());
 
-test('router.createPlainRtpTransport() succeeds', async () =>
+test('router.createPlainTransport() succeeds', async () =>
 {
 	await expect(router.dump())
 		.resolves
@@ -71,7 +71,7 @@ test('router.createPlainRtpTransport() succeeds', async () =>
 	router.observer.once('newtransport', onObserverNewTransport);
 
 	// Create a separate transport here.
-	const transport1 = await router.createPlainRtpTransport(
+	const transport1 = await router.createPlainTransport(
 		{
 			listenIp   : { ip: '127.0.0.1', announcedIp: '9.9.9.1' },
 			rtcpMux    : true,
@@ -88,7 +88,7 @@ test('router.createPlainRtpTransport() succeeds', async () =>
 	expect(transport1.tuple.localIp).toBe('9.9.9.1');
 	expect(transport1.tuple.localPort).toBeType('number');
 	expect(transport1.tuple.protocol).toBe('udp');
-	expect(transport1.rtcpTuple).toBe(undefined);
+	expect(transport1.rtcpTuple).toBeUndefined();
 	expect(transport1.sctpParameters).toStrictEqual(
 		{
 			port           : 5000,
@@ -98,6 +98,7 @@ test('router.createPlainRtpTransport() succeeds', async () =>
 			isDataChannel  : false
 		});
 	expect(transport1.sctpState).toBe('new');
+	expect(transport1.srtpParameters).toBeUndefined();
 
 	const data1 = await transport1.dump();
 
@@ -114,11 +115,11 @@ test('router.createPlainRtpTransport() succeeds', async () =>
 	transport1.close();
 	expect(transport1.closed).toBe(true);
 
-	await expect(router.createPlainRtpTransport({ listenIp: '127.0.0.1' }))
+	await expect(router.createPlainTransport({ listenIp: '127.0.0.1' }))
 		.resolves
 		.toBeType('object');
 
-	const transport2 = await router.createPlainRtpTransport(
+	const transport2 = await router.createPlainTransport(
 		{
 			listenIp : '127.0.0.1',
 			rtcpMux  : false
@@ -135,32 +136,32 @@ test('router.createPlainRtpTransport() succeeds', async () =>
 	expect(transport2.rtcpTuple.localIp).toBe('127.0.0.1');
 	expect(transport2.rtcpTuple.localPort).toBeType('number');
 	expect(transport2.rtcpTuple.protocol).toBe('udp');
-	expect(transport2.sctpParameters).toBe(undefined);
-	expect(transport2.sctpState).toBe(undefined);
+	expect(transport2.sctpParameters).toBeUndefined();
+	expect(transport2.sctpState).toBeUndefined();
 
 	const data2 = await transport2.dump();
 
 	expect(data2.id).toBe(transport2.id);
 	expect(data2.tuple).toEqual(transport2.tuple);
 	expect(data2.rtcpTuple).toEqual(transport2.rtcpTuple);
-	expect(data2.sctpState).toBe(undefined);
+	expect(data2.sctpState).toBeUndefined();
 }, 2000);
 
-test('router.createPlainRtpTransport() with wrong arguments rejects with TypeError', async () =>
+test('router.createPlainTransport() with wrong arguments rejects with TypeError', async () =>
 {
-	await expect(router.createPlainRtpTransport({}))
+	await expect(router.createPlainTransport({}))
 		.rejects
 		.toThrow(TypeError);
 
-	await expect(router.createPlainRtpTransport({ listenIp: '123' }))
+	await expect(router.createPlainTransport({ listenIp: '123' }))
 		.rejects
 		.toThrow(TypeError);
 
-	await expect(router.createPlainRtpTransport({ listenIp: [ '127.0.0.1' ] }))
+	await expect(router.createPlainTransport({ listenIp: [ '127.0.0.1' ] }))
 		.rejects
 		.toThrow(TypeError);
 
-	await expect(router.createPlainRtpTransport(
+	await expect(router.createPlainTransport(
 		{
 			listenIp : '127.0.0.1',
 			appData  : 'NOT-AN-OBJECT'
@@ -169,14 +170,133 @@ test('router.createPlainRtpTransport() with wrong arguments rejects with TypeErr
 		.toThrow(TypeError);
 }, 2000);
 
-test('router.createPlainRtpTransport() with non bindable IP rejects with Error', async () =>
+test('router.createPlainTransport() with enableSrtp succeeds', async () =>
 {
-	await expect(router.createPlainRtpTransport({ listenIp: '8.8.8.8' }))
+	const transport1 = await router.createPlainTransport(
+		{
+			listenIp   : '127.0.0.1',
+			enableSrtp : true
+		});
+
+	expect(transport1.id).toBeType('string');
+	expect(transport1.srtpParameters).toBeType('object');
+	expect(transport1.srtpParameters.cryptoSuite).toBe('AES_CM_128_HMAC_SHA1_80');
+	expect(transport1.srtpParameters.keyBase64.length).toBe(40);
+
+	// Missing srtpParameters.
+	await expect(transport1.connect(
+		{
+			ip   : '127.0.0.2',
+			port : 9999
+		}))
+		.rejects
+		.toThrow(TypeError);
+
+	// Invalid srtpParameters.
+	await expect(transport1.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9999,
+			srtpParameters : 1
+		}))
+		.rejects
+		.toThrow(TypeError);
+
+	// Missing srtpParameters.cryptoSuite.
+	await expect(transport1.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9999,
+			srtpParameters :
+			{
+				keyBase64 : 'ZnQ3eWJraDg0d3ZoYzM5cXN1Y2pnaHU5NWxrZTVv'
+			}
+		}))
+		.rejects
+		.toThrow(TypeError);
+
+	// Missing srtpParameters.keyBase64.
+	await expect(transport1.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9999,
+			srtpParameters :
+			{
+				cryptoSuite : 'AES_CM_128_HMAC_SHA1_80'
+			}
+		}))
+		.rejects
+		.toThrow(TypeError);
+
+	// Invalid srtpParameters.cryptoSuite.
+	await expect(transport1.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9999,
+			srtpParameters :
+			{
+				cryptoSuite : 'FOO',
+				keyBase64   : 'ZnQ3eWJraDg0d3ZoYzM5cXN1Y2pnaHU5NWxrZTVv'
+			}
+		}))
+		.rejects
+		.toThrow(TypeError);
+
+	// Invalid srtpParameters.cryptoSuite.
+	await expect(transport1.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9999,
+			srtpParameters :
+			{
+				cryptoSuite : 123,
+				keyBase64   : 'ZnQ3eWJraDg0d3ZoYzM5cXN1Y2pnaHU5NWxrZTVv'
+			}
+		}))
+		.rejects
+		.toThrow(TypeError);
+
+	// Invalid srtpParameters.keyBase64.
+	await expect(transport1.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9999,
+			srtpParameters :
+			{
+				cryptoSuite : 'AES_CM_128_HMAC_SHA1_80',
+				keyBase64   : []
+			}
+		}))
+		.rejects
+		.toThrow(TypeError);
+
+	// Valid srtpParameters. And let's update the crypto suite.
+	await expect(transport1.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9999,
+			srtpParameters :
+			{
+				cryptoSuite : 'AES_CM_128_HMAC_SHA1_32',
+				keyBase64   : 'ZnQ3eWJraDg0d3ZoYzM5cXN1Y2pnaHU5NWxrZTVv'
+			}
+		}))
+		.resolves
+		.toBeUndefined();
+
+	expect(transport1.srtpParameters.cryptoSuite).toBe('AES_CM_128_HMAC_SHA1_32');
+
+	transport1.close();
+}, 2000);
+
+test('router.createPlainTransport() with non bindable IP rejects with Error', async () =>
+{
+	await expect(router.createPlainTransport({ listenIp: '8.8.8.8' }))
 		.rejects
 		.toThrow(Error);
 }, 2000);
 
-test('plaintRtpTransport.getStats() succeeds', async () =>
+test('plainTransport.getStats() succeeds', async () =>
 {
 	const data = await transport.getStats();
 
@@ -203,16 +323,31 @@ test('plaintRtpTransport.getStats() succeeds', async () =>
 	expect(data[0].tuple.localIp).toBe('4.4.4.4');
 	expect(data[0].tuple.localPort).toBeType('number');
 	expect(data[0].tuple.protocol).toBe('udp');
-	expect(data[0].rtcpTuple).toBe(undefined);
+	expect(data[0].rtcpTuple).toBeUndefined();
 	expect(data[0].recvBitrate).toBe(0);
 	expect(data[0].sendBitrate).toBe(0);
 }, 2000);
 
-test('plaintRtpTransport.connect() succeeds', async () =>
+test('plainTransport.connect() succeeds', async () =>
 {
+	// No SRTP enabled so passing srtpParameters must fail.
+	await expect(transport.connect(
+		{
+			ip             : '127.0.0.2',
+			port           : 9998,
+			rtcpPort       : 9999,
+			srtpParameters :
+			{
+				cryptoSuite : 'AES_CM_128_HMAC_SHA1_80',
+				keyBase64   : 'ZnQ3eWJraDg0d3ZoYzM5cXN1Y2pnaHU5NWxrZTVv'
+			}
+		}))
+		.rejects
+		.toThrow(TypeError);
+
 	await expect(transport.connect({ ip: '1.2.3.4', port: 1234, rtcpPort: 1235 }))
 		.resolves
-		.toBe(undefined);
+		.toBeUndefined();
 
 	// Must fail if connected.
 	await expect(transport.connect({ ip: '1.2.3.4', port: 1234, rtcpPort: 1235 }))
@@ -227,7 +362,7 @@ test('plaintRtpTransport.connect() succeeds', async () =>
 	expect(transport.rtcpTuple.protocol).toBe('udp');
 }, 2000);
 
-test('plaintRtpTransport.connect() with wrong arguments rejects with TypeError', async () =>
+test('plainTransport.connect() with wrong arguments rejects with TypeError', async () =>
 {
 	await expect(transport.connect({}))
 		.rejects
@@ -246,7 +381,7 @@ test('plaintRtpTransport.connect() with wrong arguments rejects with TypeError',
 		.toThrow(TypeError);
 }, 2000);
 
-test('PlaintRtpTransport methods reject if closed', async () =>
+test('PlainTransport methods reject if closed', async () =>
 {
 	const onObserverClose = jest.fn();
 
@@ -269,12 +404,12 @@ test('PlaintRtpTransport methods reject if closed', async () =>
 		.toThrow(Error);
 }, 2000);
 
-test('PlaintRtpTransport emits "routerclose" if Router is closed', async () =>
+test('PlainTransport emits "routerclose" if Router is closed', async () =>
 {
-	// We need different Router and PlaintRtpTransport instances here.
+	// We need different Router and PlainTransport instances here.
 	const router2 = await worker.createRouter({ mediaCodecs });
 	const transport2 =
-		await router2.createPlainRtpTransport({ listenIp: '127.0.0.1' });
+		await router2.createPlainTransport({ listenIp: '127.0.0.1' });
 	const onObserverClose = jest.fn();
 
 	transport2.observer.once('close', onObserverClose);
@@ -289,7 +424,7 @@ test('PlaintRtpTransport emits "routerclose" if Router is closed', async () =>
 	expect(transport2.closed).toBe(true);
 }, 2000);
 
-test('PlaintRtpTransport emits "routerclose" if Worker is closed', async () =>
+test('PlainTransport emits "routerclose" if Worker is closed', async () =>
 {
 	const onObserverClose = jest.fn();
 

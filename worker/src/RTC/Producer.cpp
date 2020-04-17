@@ -7,7 +7,7 @@
 #include "MediaSoupErrors.hpp"
 #include "Utils.hpp"
 #include "Channel/Notifier.hpp"
-#include "RTC/Codecs/Codecs.hpp"
+#include "RTC/Codecs/Tools.hpp"
 #include "RTC/RTCP/FeedbackPs.hpp"
 #include "RTC/RTCP/FeedbackRtp.hpp"
 #include "RTC/RTCP/XrReceiverReferenceTime.hpp"
@@ -49,7 +49,7 @@ namespace RTC
 		auto& encoding   = this->rtpParameters.encodings[0];
 		auto* mediaCodec = this->rtpParameters.GetCodecForEncoding(encoding);
 
-		if (!RTC::Codecs::IsValidTypeForCodec(this->type, mediaCodec->mimeType))
+		if (!RTC::Codecs::Tools::IsValidTypeForCodec(this->type, mediaCodec->mimeType))
 		{
 			MS_THROW_TYPE_ERROR(
 			  "%s codec not supported for %s",
@@ -415,18 +415,14 @@ namespace RTC
 	{
 		MS_TRACE();
 
-		size_t rtpStreamIdx{ 0 };
-
 		for (auto& kv : this->mapSsrcRtpStream)
 		{
 			jsonArray.emplace_back(json::value_t::object);
 
-			auto& jsonEntry = jsonArray[rtpStreamIdx];
+			auto& jsonEntry = jsonArray[jsonArray.size() - 1];
 			auto* rtpStream = kv.second;
 
 			rtpStream->FillJsonStats(jsonEntry);
-
-			++rtpStreamIdx;
 		}
 	}
 
@@ -1187,6 +1183,16 @@ namespace RTC
 			uint8_t extenLen;
 			uint8_t* bufferPtr{ buffer };
 
+			// Add urn:ietf:params:rtp-hdrext:sdes:mid.
+			{
+				extenLen = RTC::MidMaxLength;
+
+				extensions.emplace_back(
+				  static_cast<uint8_t>(RTC::RtpHeaderExtensionUri::Type::MID), extenLen, bufferPtr);
+
+				bufferPtr += extenLen;
+			}
+
 			if (this->kind == RTC::Media::Kind::AUDIO)
 			{
 				// Proxy urn:ietf:params:rtp-hdrext:ssrc-audio-level.
@@ -1303,6 +1309,7 @@ namespace RTC
 
 			// Assign mediasoup RTP header extension ids (just those that mediasoup may
 			// be interested in after passing it to the Router).
+			packet->SetMidExtensionId(static_cast<uint8_t>(RTC::RtpHeaderExtensionUri::Type::MID));
 			packet->SetAbsSendTimeExtensionId(
 			  static_cast<uint8_t>(RTC::RtpHeaderExtensionUri::Type::ABS_SEND_TIME));
 			packet->SetTransportWideCc01ExtensionId(

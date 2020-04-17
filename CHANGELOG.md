@@ -1,6 +1,62 @@
 # Changelog
 
 
+### 3.5.7
+
+* Fix crash in mediasoup-worker due to conversion from `uint64_t` to `int64_t` (used within `libwebrtc` code. Fixes #357.
+* Update `usrsctp` library.
+* Update Node deps.
+
+
+### 3.5.6
+
+* `SeqManager.cpp`: Fix video lag after a long time.
+  - Fixes #372 (thanks @penguinol for reporting it and giving the solution).
+
+
+### 3.5.5
+
+* `UdpSocket.cpp`: Revert `uv__udp_recvmmsg()` usage since it notifies about received UDP packets in reverse order. Feature on hold until fixed. 
+
+
+### 3.5.4
+
+* `Transport.cpp`: Enable transport congestion client for the first video Consumer, no matter it's uses simulcast, SVC or a single stream.
+* Update libuv to 1.35.0.
+* `UdpSocket.cpp`: Ensure the new libuv's `uv__udp_recvmmsg()` is used, which is more efficient.
+
+
+### 3.5.3
+
+* `PlainTransport`: Remove `multiSource` option. It was a hack nobody should use.
+
+
+### 3.5.2
+
+* Enable MID RTP extension in mediasoup to receivers direction (for consumers).
+  - This **requires** mediasoup-client 3.5.2 to work.
+
+
+### 3.5.1
+
+* `PlainTransport`: Fix event name: 'rtcpTuple' => 'rtcptuple'.
+
+
+### 3.5.0
+
+* `PipeTransport`: Add support for SRTP and RTP retransmission (RTX + NACK). Useful when connecting two mediasoup servers running in different hosts via pipe transports.
+* `PlainTransport`: Add support for SRTP.
+* Rename `PlainRtpTransport` to `PlainTransport` everywhere (classes, methods, TypeScript types, etc). Keep previous names and mark them as DEPRECATED.
+* Fix vulnarability in IPv6 parser.
+
+
+### 3.4.13
+
+* Update `uuid` dep to 7.0.X (new API).
+* Fix crash due wrong array index in `PipeConsumer::FillJson()`.
+  - Fixes #364
+
+
 ### 3.4.12
 
 * TypeScript: generate `es2020` instead of `es6`.
@@ -56,7 +112,7 @@
 ### 3.4.5
 
 * Update deps.
-* Fix text in `./github/Bug_Report.md` so it no longer references the decrepated mailing list.
+* Fix text in `./github/Bug_Report.md` so it no longer references the deprecated mailing list.
 
 
 ### 3.4.4
@@ -415,7 +471,7 @@
 
 ### 2.5.4
 
-* `server.Room()`: Assign workers incrementally or explicitely via new `workerIdx` argument.
+* `server.Room()`: Assign workers incrementally or explicitly via new `workerIdx` argument.
 * Add `server.numWorkers` getter.
 
 
@@ -480,7 +536,7 @@
 
 ### 2.3.2
 
-* `Channel.js`: Upgrade `REQUEST_TIMEOUT` to 20 seconds to avoid timeout errors when the the Node or worker thread usage is too high (related to this [issue](https://github.com/versatica/mediasoup-client/issues/48)).
+* `Channel.js`: Upgrade `REQUEST_TIMEOUT` to 20 seconds to avoid timeout errors when the Node or worker thread usage is too high (related to this [issue](https://github.com/versatica/mediasoup-client/issues/48)).
 
 
 ### 2.3.1

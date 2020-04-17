@@ -1,13 +1,15 @@
-#ifndef MS_RTC_PLAIN_RTP_TRANSPORT_HPP
-#define MS_RTC_PLAIN_RTP_TRANSPORT_HPP
+#ifndef MS_RTC_PLAIN_TRANSPORT_HPP
+#define MS_RTC_PLAIN_TRANSPORT_HPP
 
+#include "RTC/SrtpSession.hpp"
 #include "RTC/Transport.hpp"
 #include "RTC/TransportTuple.hpp"
 #include "RTC/UdpSocket.hpp"
+#include <map>
 
 namespace RTC
 {
-	class PlainRtpTransport : public RTC::Transport, public RTC::UdpSocket::Listener
+	class PlainTransport : public RTC::Transport, public RTC::UdpSocket::Listener
 	{
 	private:
 		struct ListenIp
@@ -16,9 +18,14 @@ namespace RTC
 			std::string announcedIp;
 		};
 
+	private:
+		static std::map<std::string, RTC::SrtpSession::CryptoSuite> string2SrtpCryptoSuite;
+		static std::map<RTC::SrtpSession::CryptoSuite, std::string> srtpCryptoSuite2String;
+		static size_t srtpMasterLength;
+
 	public:
-		PlainRtpTransport(const std::string& id, RTC::Transport::Listener* listener, json& data);
-		~PlainRtpTransport() override;
+		PlainTransport(const std::string& id, RTC::Transport::Listener* listener, json& data);
+		~PlainTransport() override;
 
 	public:
 		void FillJson(json& jsonObject) const override;
@@ -27,6 +34,8 @@ namespace RTC
 
 	private:
 		bool IsConnected() const override;
+		bool HasSrtp() const;
+		bool IsSrtpReady() const;
 		void SendRtpPacket(RTC::RtpPacket* packet, RTC::Transport::onSendCallback* cb = nullptr) override;
 		void SendRtcpPacket(RTC::RTCP::Packet* packet) override;
 		void SendRtcpCompoundPacket(RTC::RTCP::CompoundPacket* packet) override;
@@ -47,13 +56,20 @@ namespace RTC
 		RTC::UdpSocket* rtcpUdpSocket{ nullptr };
 		RTC::TransportTuple* tuple{ nullptr };
 		RTC::TransportTuple* rtcpTuple{ nullptr };
+		RTC::SrtpSession* srtpRecvSession{ nullptr };
+		RTC::SrtpSession* srtpSendSession{ nullptr };
 		// Others.
 		ListenIp listenIp;
 		bool rtcpMux{ true };
 		bool comedia{ false };
-		bool multiSource{ false };
 		struct sockaddr_storage remoteAddrStorage;
 		struct sockaddr_storage rtcpRemoteAddrStorage;
+		RTC::SrtpSession::CryptoSuite srtpCryptoSuite{
+			RTC::SrtpSession::CryptoSuite::AES_CM_128_HMAC_SHA1_80
+		};
+		std::string srtpKey;
+		std::string srtpKeyBase64;
+		bool connectCalled{ false }; // Whether connect() was succesfully called.
 	};
 } // namespace RTC
 
